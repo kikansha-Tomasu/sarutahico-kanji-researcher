@@ -251,11 +251,18 @@
       'vendor/ort/ort-wasm-simd-threaded.jsep.mjs',
       'vendor/ort/ort-wasm-simd-threaded.jsep.wasm'
     ];
-    // Bumped from v1 when replacing huayan: v1 held the removed 63 MB model.
-    const PIPER_CACHE_NAME = 'sarutahico-piper-v2';
+    // v1: removed huayan model. v2: unverified Hugging Face downloads.
+    // v3: cache keys include SRI; only verified blobs are stored.
+    const PIPER_CACHE_NAME = 'sarutahico-piper-v3';
     // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
     const PIPER_VOICES = {
       'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
+    };
+    // SRI for the optional Hugging Face fallback (hashes of the vendored files).
+    // A remote model/config is only used after its SHA-256 matches exactly.
+    const PIPER_ASSET_SRI = {
+      'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx': 'sha256-g6UmhhatCqLT4rZxWIJLXiOyTglzRzziiFnAWUV7gk4=',
+      'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json': 'sha256-SEdwQrpfB9wfEKxTWiXyG7ag+cQFgdL20M5fUaHTR6Y='
     };
     const PINYIN_INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
     // Matches piper1-gpl phonemize_chinese.py::GROUP_END_PHONEMES.
@@ -1359,6 +1366,7 @@
     }
 
     renderVoiceOptions(DEFAULT_VOICE);
+    pruneOldPiperCaches();
     if (window.speechSynthesis) {
       window.speechSynthesis.onvoiceschanged = () => renderVoiceOptions();
     }
@@ -1469,16 +1477,35 @@
       window.ort.env.wasm.proxy = false;
     }
 
-    async function cachedFetch(url, onProgress) {
+    async function verifyBlobIntegrity(blob, integrity) {
+      if (!integrity) return;
+      if (!window.crypto || !crypto.subtle) {
+        throw new Error('整合性検証に必要な Web Crypto API が利用できません。');
+      }
+      const expected = /^sha256-([A-Za-z0-9+/]+={0,2})$/.exec(integrity);
+      if (!expected) throw new Error('不正な SRI 形式です: ' + integrity);
+      const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+      const actual = 'sha256-' + btoa(String.fromCharCode(...new Uint8Array(digest)));
+      if (actual !== integrity) {
+        throw new Error(`ファイルの整合性検証に失敗しました（期待: ${integrity} / 実際: ${actual}）`);
+      }
+    }
+
+    async function cachedFetch(url, onProgress, integrity = '') {
       let cache = null;
       try {
         if (window.caches) cache = await caches.open(PIPER_CACHE_NAME);
       } catch (e) {
         console.warn('Cache API unavailable:', e);
       }
+      // Cache keys carry the SRI so a changed hash cannot reuse stale content.
+      // Only blobs that passed verification are ever written under such a key.
+      const cacheKey = integrity
+        ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}`
+        : url;
       if (cache) {
         try {
-          const hit = await cache.match(url);
+          const hit = await cache.match(cacheKey);
           if (hit) return await hit.blob();
         } catch (e) { /* ignore cache read errors */ }
       }
@@ -1502,9 +1529,10 @@
       } else {
         blob = await res.blob();
       }
+      if (integrity) await verifyBlobIntegrity(blob, integrity);
       if (cache) {
         try {
-          await cache.put(url, new Response(blob, {
+          await cache.put(cacheKey, new Response(blob, {
             headers: { 'Content-Type': blob.type || 'application/octet-stream' }
           }));
         } catch (e) {
@@ -1512,6 +1540,18 @@
         }
       }
       return blob;
+    }
+
+    async function pruneOldPiperCaches() {
+      if (!window.caches || !caches.keys) return;
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys
+          .filter(key => key.startsWith('sarutahico-piper-') && key !== PIPER_CACHE_NAME)
+          .map(key => caches.delete(key)));
+      } catch (e) {
+        console.warn('Old cache cleanup failed:', e);
+      }
     }
 
     function pcmToWav(pcm, sampleRate) {
@@ -1558,14 +1598,21 @@
           `${PIPER_VOICES_URL}/${voice.path}.onnx`
         );
         const base = modelAsset.local ? `vendor/piper/models/${voice.path}` : `${PIPER_VOICES_URL}/${voice.path}`;
+        // Vendored files are verified by tools/fetch-assets.py. A remote
+        // fallback is unverified, so check its SHA-256 before use/cache.
+        const configSri = modelAsset.local ? '' : (PIPER_ASSET_SRI[voice.path + '.onnx.json'] || '');
+        const modelSri = modelAsset.local ? '' : (PIPER_ASSET_SRI[voice.path + '.onnx'] || '');
+        if (!modelAsset.local && (!configSri || !modelSri)) {
+          throw new Error('この音声の SRI が定義されていません。');
+        }
         setPrepStatus('ニューラル音声の設定を読み込み中...');
-        const configBlob = await cachedFetch(base + '.onnx.json');
+        const configBlob = await cachedFetch(base + '.onnx.json', null, configSri);
         const config = JSON.parse(await configBlob.text());
         setPrepStatus('ニューラル音声のモデルを読み込み中...');
         const modelBlob = await cachedFetch(base + '.onnx', (loaded, total) => {
           const pct = Math.round(loaded * 100 / total);
           setPrepStatus(`モデルを取得中... ${pct}%`);
-        });
+        }, modelSri);
         const session = await window.ort.InferenceSession.create(await modelBlob.arrayBuffer(), {
           executionProviders: ['wasm']
         });

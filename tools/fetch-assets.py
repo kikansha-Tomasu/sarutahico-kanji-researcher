@@ -14,6 +14,7 @@ import base64
 import hashlib
 import os
 import re
+import subprocess
 import sys
 import urllib.request
 
@@ -85,7 +86,11 @@ def sha256(path: str) -> str:
 
 
 def check_cdn_sri() -> list[str]:
-    """Ensure every SRI hash in main.html matches a vendored SHA-256."""
+    """Ensure every SRI hash in main.html matches a vendored SHA-256.
+
+    Covers both CDN fallback scripts and the optional Hugging Face voice
+    fallback, so a changed vendored file cannot leave a stale browser hash.
+    """
     html_path = os.path.join(ROOT, "main.html")
     if not os.path.exists(html_path):
         return [f"main.html not found: {html_path}"]
@@ -104,7 +109,7 @@ def check_cdn_sri() -> list[str]:
 
     declared = {
         resolve(expr): digest
-        for expr, digest in re.findall(r"\[([^\]]+)\]\s*:\s*'sha256-([^']+)'", html)
+        for expr, digest in re.findall(r"\[([^\]]+)\]\s*:\s*['\"]sha256-([^'\"]+)['\"]", html)
     }
     pairs = [
         (ORT + "ort.min.js", "ort/ort.min.js"),
@@ -114,6 +119,19 @@ def check_cdn_sri() -> list[str]:
     digests = {
         rel: base64.b64encode(bytes.fromhex(SHA256[rel])).decode("ascii")
         for _, rel in pairs
+    }
+    voice_rel = "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx"
+    voice_path = "zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx"
+    voice_pairs = [(voice_path, voice_rel), (voice_path + ".json", voice_rel + ".json")]
+    voice_digests = {
+        rel: base64.b64encode(bytes.fromhex(SHA256[rel])).decode("ascii")
+        for _, rel in voice_pairs
+    }
+    declared_voice = {
+        path: digest
+        for path, digest in re.findall(
+            r"['\"]([^'\"]+\.onnx(?:\.json)?)['\"]\s*:\s*['\"]sha256-([^'\"]+)['\"]", html
+        )
     }
     failures = []
     for url, rel in pairs:
@@ -125,14 +143,51 @@ def check_cdn_sri() -> list[str]:
     missing_urls = expected_urls - set(declared)
     if extra_urls or missing_urls:
         failures.append(f"CDN_SRI keys mismatch: extra={sorted(extra_urls)}, missing={sorted(missing_urls)}")
-    literals = set(re.findall(r"sha256-([^']+)'", html))
-    expected_literals = set(digests.values())
+    for path, rel in voice_pairs:
+        actual = declared_voice.get(path)
+        if actual != voice_digests[rel]:
+            failures.append(f"PIPER_ASSET_SRI mismatch for {rel}: {actual} != {voice_digests[rel]}")
+    expected_paths = {path for path, _ in voice_pairs}
+    extra_paths = set(declared_voice) - expected_paths
+    missing_paths = expected_paths - set(declared_voice)
+    if extra_paths or missing_paths:
+        failures.append(
+            f"PIPER_ASSET_SRI keys mismatch: extra={sorted(extra_paths)}, "
+            f"missing={sorted(missing_paths)}"
+        )
+    # Quote-agnostic so a double-quoted or template-literal hash cannot be
+    # silently ignored. The validation regex in main.html does not match here
+    # because a base64 digest cannot start with '(' or "'".
+    literals = set(re.findall(r"sha256-([A-Za-z0-9+/]+={0,2})", html))
+    expected_literals = set(digests.values()) | set(voice_digests.values())
     if literals != expected_literals:
         failures.append(
             f"sha256 literals mismatch: extra={sorted(literals - expected_literals)}, "
             f"missing={sorted(expected_literals - literals)}"
         )
     return failures
+
+
+def check_git_tracking() -> list[str]:
+    """Report manifest assets that are present but not committed to git."""
+    if not os.path.isdir(os.path.join(ROOT, ".git")):
+        return []
+    try:
+        tracked = set(subprocess.check_output(
+            ["git", "ls-files", "vendor"], cwd=ROOT, text=True
+        ).splitlines())
+    except Exception as exc:
+        return [f"git tracking check failed: {exc}"]
+    tracked = {path.replace(os.sep, "/") for path in tracked}
+    expected = {"vendor/" + rel for _, rel, _ in MANIFEST}
+    for dirpath, _, filenames in os.walk(os.path.join(ROOT, "vendor")):
+        for name in filenames:
+            path = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            expected.add(path.replace(os.sep, "/"))
+    missing = sorted(expected - tracked)
+    if missing:
+        return [f"vendor assets not tracked by git: {missing}"]
+    return []
 
 
 def main() -> int:
@@ -167,14 +222,14 @@ def main() -> int:
                 os.remove(tmp)
             failures.append((rel, str(exc)))
             print(f"FAILED   {rel}: {exc}", file=sys.stderr)
-    sri_failures = check_cdn_sri()
+    sri_failures = check_cdn_sri() + check_git_tracking()
     for failure in sri_failures:
         print(f"FAILED   {failure}", file=sys.stderr)
     failures.extend(sri_failures)
     if failures:
         print(f"\n{len(failures)} asset check(s) failed (see FAILED lines above).", file=sys.stderr)
         return 1
-    print("\nAll assets are available locally in vendor/ and CDN_SRI matches.")
+    print("\nAll assets are available locally in vendor/, SRI hashes match, and vendor/ is fully tracked.")
     return 0
 
 

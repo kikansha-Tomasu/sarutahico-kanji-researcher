@@ -32,7 +32,7 @@ python tools/serve.py
 python tools/fetch-assets.py
 ```
 
-主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js`）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。CDN 読み込みには SRI（Subresource Integrity）を設定しており、改ざんされたレスポンスはブラウザが拒否します。`worker.min.js`・`core/`・`lang/`・`.wasm` などライブラリ内部で読み込まれる二次アセットは SRI を付けられないため、主要スクリプトが CDN フォールバックした場合でも**常にローカル同梱のパスを使います**。欠落時は未検証コードの実行を避けて処理を失敗させ、再取得を促すメッセージを表示します。`tools/fetch-assets.py` はサイズ・SHA-256 に加えて、`main.html` の SRI ハッシュが同梱ファイルと一致するかも検証します。音声モデルだけが無い場合は Hugging Face から取得します（このファイルの完全性はブラウザでは検証しません）。
+主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js`）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。CDN 読み込みには SRI（Subresource Integrity）を設定しており、改ざんされたレスポンスはブラウザが拒否します。`worker.min.js`・`core/`・`lang/`・`.wasm` などライブラリ内部で読み込まれる二次アセットは SRI を付けられないため、主要スクリプトが CDN フォールバックした場合でも**常にローカル同梱のパスを使います**。欠落時は未検証コードの実行を避けて処理を失敗させ、再取得を促すメッセージを表示します。`tools/fetch-assets.py` はサイズ・SHA-256 に加えて、`main.html` の全 SRI ハッシュ（CDN 主要スクリプトと音声モデル／設定）が同梱ファイルと一致するかも検証します。Git リポジトリ内では `vendor/` の全ファイルが追跡済みかも確認し、配布漏れを検出します。音声モデルだけが無い場合は Hugging Face から取得しますが、設定・モデルとも SHA-256 を照合し、一致しない場合は破棄してブラウザ音声へフォールバックします。検証済みのバイト列だけを Cache API に保存し、キャッシュキーにも SRI を含めるため、ハッシュ変更時に古い内容が再利用されることはありません。古い `sarutahico-piper-v*` キャッシュは起動時に削除します。
 
 同梱アセットのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。同梱の中国語音声は学習データが CC0 の `chaowen` のみで、ライセンス不明のモデルは含まれていません。
 
@@ -52,6 +52,7 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`）と上流 RBNF 6,142 ケース・上位ギャップ集中ケースとの一致
 - 年の桁読み（`2026年9月` → `二〇二六年九月`、`2026年2027年` → `二〇二六年二〇二七年`、5 桁以上は一般数値）
 - CDN フォールバック時の SRI 属性付与、不正ハッシュの拒否、二次アセット欠落時の fail-closed、二次アセットのローカルパス強制
+- Hugging Face フォールバックの完全性検証（正常モデルは再生・キャッシュ再利用、改ざんモデルは拒否してブラウザ音声へ切替）、旧キャッシュの削除
 - 外部通信を遮断した状態での OCR / Piper 動作
 - axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
 - Firefox の OCR / Piper、WebKit の OCR / モデル推論
@@ -78,4 +79,4 @@ sarutahico_logo.png          ヘッダーロゴ
 - 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値と、上流 `piper1-gpl` の音素/ID 系列との一致までを検証しています。
 - `vendor/piper/.../zh_CN-chaowen-medium.onnx` は約 60 MB で、GitHub の推奨上限 50 MB を超えるため警告が表示されます。100 MB の硬制限内で push 済みですが、Git LFS 移行は外部ストレージ設定を伴うため未実施です。
 - `backups/` は過去状態のスナップショットです。旧ライセンス不明モデルや旧 phonemizer への参照を含みますが、実行時には読み込まれません（[backups/README.md](backups/README.md) 参照）。
-- 上流 RBNF は非常に大きな整数（約 20 桁以上）を扱えないため、その範囲の一致は検証対象外です。アプリ側は文字列ベースの桁グループ処理により丸めは発生しません。
+- 上流 RBNF は 19 桁以上で `NoRuleForNumberError`、17 桁の一部でも再帰上限に達するため、その範囲の一致は検証対象外です（アプリ側は `京`＝10^16 までを文字列ベースの桁グループ処理で丸めなく扱います）。

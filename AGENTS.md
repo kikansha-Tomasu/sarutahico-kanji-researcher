@@ -64,14 +64,22 @@
   同梱アセットを優先し、無い場合のみ CDN へフォールバックする。
 - CDN フォールバックの主要スクリプトには SRI（`CDN_SRI`）を付ける。ハッシュは
   `vendor/` の SHA-256 と同じバイト列なので、`tools/fetch-assets.py` の更新時に
-  必ず `CDN_SRI` も更新する。同スクリプトは `CDN_SRI` のキー集合と
-  `main.html` 内の全 `sha256-*` リテラルまで照合し、古い/余分なハッシュを
-  検出する。`worker.min.js` / `core/` / `lang/` / ORT の `.wasm` / `.mjs` は
+  必ず `CDN_SRI` も更新する。同スクリプトは `CDN_SRI` と `PIPER_ASSET_SRI` の
+  キー集合と `main.html` 内の全 `sha256-*` リテラルまで照合し、古い/余分な
+  ハッシュを検出する。Git リポジトリでは `vendor/` の全ファイルが追跡済みかも
+  確認する。`worker.min.js` / `core/` / `lang/` / ORT の `.wasm` / `.mjs` は
   ライブラリ内部で読み込まれ SRI を付けられないため、主要スクリプトが CDN
   フォールバックしても**常にローカル同梱のパスを指定する**。存在確認は
   `requireLocalAssets()` で行い、欠落時は未検証コードを実行せずエラーにする
   （fail-closed）。`tesseractOptions` と `ort.env.wasm.wasmPaths` は
   `*.local` の値で分岐させず、常に `vendor/` を指すこと。
+- 音声モデルだけが欠けた場合の Hugging Face フォールバックも未検証のまま
+  実行しない。`PIPER_ASSET_SRI`（同梱 model / config の SHA-256）で
+  `cachedFetch()` のダウンロードを検証し、不一致ならキャッシュに保存せず
+  ブラウザ音声へフォールバックする。キャッシュキーには SRI を含め、
+  起動時に旧 `sarutahico-piper-v*` キャッシュを削除する（`v3` 以降）。
+  同梱ファイルは `tools/fetch-assets.py` が検証するため、ローカル読み込みでは
+  毎回のハッシュ計算は行わない。
 - `vendor/` が揃っていれば外部通信ゼロで OCR / Piper が動くことを
   Playwright で確認済み（`external: []`）。
 - Tesseract.js の言語データは既定の `4.0.0_best_int` を同梱する。`4.0.0` では
@@ -100,6 +108,7 @@
 - 変更後は必ず `<script>` を抽出して `node --check` を実行する。
 - 外部 API 呼び出しは API モード時のみ。API不要モードでは行わない。
 - Piper モデルの初回ダウンロードは大きいため、進捗表示とキャッシュを必ず設ける。
+  リモート取得は完全性検証後にのみキャッシュする（キャッシュキーに SRI を含む）。
 
 ## 検証コマンド（Windows bash）
 ```bash
