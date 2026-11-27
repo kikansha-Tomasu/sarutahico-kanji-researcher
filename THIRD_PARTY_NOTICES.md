@@ -5,26 +5,20 @@ This application bundles third-party runtime assets under `vendor/`. They are fe
 | Component | Version | License | Source |
 |---|---|---|---|
 | onnxruntime-web | 1.22.0 | MIT | https://github.com/microsoft/onnxruntime |
-| @diffusionstudio/piper-wasm | 1.0.0 | MIT | https://github.com/diffusion-studio/piper-wasm |
+| pinyin-pro | 3.29.5 | MIT | https://github.com/anylee2021/pinyin-pro |
 | tesseract.js | 5.1.1 | Apache-2.0 | https://github.com/naptha/tesseract.js |
 | tesseract.js-core | 5.1.1 | Apache-2.0 | https://github.com/naptha/tesseract.js-core |
 | @tesseract.js-data/chi_sim | 1.0.0 | MIT | https://github.com/naptha/tessdata |
 | rhasspy/piper-voices (repository) | — | MIT (Hugging Face card) | https://huggingface.co/rhasspy/piper-voices |
-| zh_CN-huayan-x_low / zh_CN-huayan-medium | — | **Unknown / not stated in MODEL_CARD** | https://huggingface.co/rhasspy/piper-voices/tree/main/zh/zh_CN/huayan |
+| zh_CN-chaowen-medium | — | dataset: CC0 (per MODEL_CARD) | https://huggingface.co/rhasspy/piper-voices/tree/main/zh/zh_CN/chaowen |
 
-## huayan voice models — important
+## Chinese voice model
 
-The `rhasspy/piper-voices` repository itself is tagged `license:mit`, but the model card for both bundled voices states:
+The bundled voice is `zh_CN-chaowen-medium`. Its MODEL_CARD states `License: CC0` for the training dataset sourced from `OHF-Voice/voice-datasets`. The base voice is derived from the Hi-Fi TTS reader; review that upstream source before commercial use.
 
-```text
-License: Unknown
-Dataset URL: https://github.com/PlayVoice/HuaYan_TTS
-Training: Finetuned from lessac ...
-```
+Previously bundled `zh_CN-huayan-*` models were removed: their MODEL_CARD stated `License: Unknown` and the linked dataset (`PlayVoice/HuaYan_TTS`) returns 404. No license-unknown voice is redistributed now.
 
-The dataset URL above currently returns 404, so the training data license could not be verified. The models are redistributed here only because the user explicitly authorized uploading this project to GitHub. Before making the repository public or using the models commercially, review the upstream licenses and replace the voices with a clearly licensed alternative if needed.
-
-For reference, `zh_CN-chaowen-medium` has a CC0 dataset license, but it requires Piper 1.5 / g2pW pinyin phonemes and is **not** compatible with the bundled phonemizer and phoneme map, so it was not adopted.
+The app generates Piper pinyin phonemes (initial / final / tone symbols) in the browser with `pinyin-pro`, so the espeak-based `piper-wasm` phonemizer and its 18 MB data files are no longer bundled.
 
 ## API mode
 

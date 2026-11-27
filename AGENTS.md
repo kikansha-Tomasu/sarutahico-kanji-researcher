@@ -25,9 +25,14 @@
 - 辞書は `KANJI_DICT` に内蔵。キー重複に注意。
 - TTS は `SpeechSynthesis` に加え、Piper/VITS（ONNX Runtime Web/WASM）をブラウザ内で動かすオプションを追加済み。
   Piper が失敗した場合は `SpeechSynthesis` へ自動フォールバックする。
-- ブラウザ内 phonemizer は新版の音素表（178種）を使う一方、huayan の音声モデルは
-  旧版の表（x_low=130 ID、medium=256 ID空間）を使う。phoneme_ids を直接渡さず、
-  `phonemes.phonemes` を `config.phoneme_id_map` でマッピングし直すこと。
+- 中国語 Piper 音声は学習データ CC0 の `zh_CN-chaowen-medium` のみ同梱する。
+  `phoneme_type: pinyin` のため espeak phonemizer は不要。`pinyin-pro` で
+  声母・韻母・声調のシンボル列を作り、`phoneme_id_map` で ID 化する。
+  BOS/EOS/pad も同マップから取得し、未対応音素は `console.warn` に記録する。
+- pinyin-pro の軽声は `de0` / `ma0` のように声調 `0` で出力されるが、chaowen の
+  地図には `0` が無く `5` が軽声に対応する。`0` は `5` へ変換しないと
+  「的」「妈妈」などの音節が丸ごと失われるため、必ず正規表現 `[0-5]` で
+  受けて `5` にマッピングする（回帰テスト `test-neutral-tone.js` あり）。
 - 再生停止・音声エラー時は `setTtsStatus('')` で状態表示もクリアする。
 - UI 文言は「オフライン」ではなく「API不要」に統一する。実行時は `vendor/` の
   同梱アセットを優先し、無い場合のみ CDN へフォールバックする。
@@ -37,17 +42,18 @@
   「中」を「十」と誤認識したため置換した。
 - ONNX Runtime Web 1.22 の `.mjs` は MIME が `text/javascript` で必要。
   `python -m http.server` では `text/plain` になるため `tools/serve.py` を使う。
-- huayan 音声の学習データのライセンスは MODEL_CARD に未記載。公開リポジトリへ
-  上げる前に `THIRD_PARTY_NOTICES.md` を確認すること。
-- axe-core で WCAG 2.1 AA を検証済み（`violations: []`）。`--red` / `--gold` / `--green` は
+- ライセンス不明の huayan 音声は削除済み。同梱アセットのライセンスは
+  `THIRD_PARTY_NOTICES.md` に集約する。
+- axe-core で WCAG 2.1 AA を検証済み（Chromium / Firefox とも `violations: []`,
+  `incomplete: []`）。背景はグラデーションをやめ単色にし、`--purple` は `#75608F`
+  以上に暗くして `#fcfcfc` に対して 4.5:1 を確保する。`--red` / `--gold` / `--green` は
   白文字で 4.5:1 以上になる暗めの色を維持する。範囲入力には `aria-label` を付ける。
 - 再生状態の競合対策: `playbackToken` と `activeUtterance` を用い、再生中に別ボタンを
   押したら旧音声を停止してから開始する。Audio の `onended` / `onerror` は
   `activeAudio === audio` を確認してから状態を変更する。準備中のステータス表示は
   `activeButton` と選択音声で判定し、停止後の古い進捗表示が残らないようにする。
-- phonemizer は stdout を待つだけだとハングするため、20 秒タイムアウトと stderr エラー、
-  `cancelPending()` による reject を用意する。BOS/EOS/pad は `phoneme_id_map` から取得し、
-  未対応音素は `console.warn` に記録する。
+- pinyin-pro は同期変換のためタイムアウト不要。再生中に別音声へ切り替えた場合は
+  `playbackToken` で古い生成結果を破棄する。
 - ブラウザ音声の `cancel()` で発火する `canceled` / `interrupted` エラーは
   「再生に失敗しました」と表示しない。
 

@@ -19,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENDOR = os.path.join(ROOT, "vendor")
 
 ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/"
-PIPER_JS = "https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/"
+PINYIN = "https://cdn.jsdelivr.net/npm/pinyin-pro@3.29.5/"
 HF = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 TESS = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/"
 TESS_CORE = "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/"
@@ -31,17 +31,12 @@ MANIFEST = [
     (ORT + "ort-wasm-simd-threaded.mjs", "ort/ort-wasm-simd-threaded.mjs", 20856),
     (ORT + "ort-wasm-simd-threaded.jsep.mjs", "ort/ort-wasm-simd-threaded.jsep.mjs", 44677),
     (ORT + "ort-wasm-simd-threaded.jsep.wasm", "ort/ort-wasm-simd-threaded.jsep.wasm", 21872216),
-    (PIPER_JS + "piper_phonemize.js", "piper/piper_phonemize.js", 120714),
-    (PIPER_JS + "piper_phonemize.wasm", "piper/piper_phonemize.wasm", 635212),
-    (PIPER_JS + "piper_phonemize.data", "piper/piper_phonemize.data", 18077249),
-    (HF + "/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json",
-     "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json", 4164),
-    (HF + "/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx",
-     "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx", 20628813),
-    (HF + "/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json",
-     "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json", 4822),
-    (HF + "/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx",
-     "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx", 63201294),
+    (PINYIN + "dist/index.js", "pinyin/pinyin-pro.js", 325698),
+    (PINYIN + "LICENSE", "pinyin/LICENSE", 1070),
+    (HF + "/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json",
+     "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json", 4360),
+    (HF + "/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx",
+     "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx", 63221984),
     (TESS + "tesseract.min.js", "tesseract/tesseract.min.js", 66695),
     (TESS + "worker.min.js", "tesseract/worker.min.js", 123724),
     (TESS_CORE + "tesseract-core.wasm.js", "tesseract/core/tesseract-core.wasm.js", 4734777),
@@ -61,13 +56,10 @@ SHA256 = {
     "ort/ort-wasm-simd-threaded.mjs": "30dd851d9c00622940500f71ddd2ff8820c5cb65270816080175b958705385a8",
     "ort/ort-wasm-simd-threaded.jsep.mjs": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8",
     "ort/ort-wasm-simd-threaded.jsep.wasm": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368",
-    "piper/piper_phonemize.js": "fef0c2fc442d24fdef5c7c7cc37d5da2314407640fe11ab1bfe347c723dff19b",
-    "piper/piper_phonemize.wasm": "b777cd107a91d2bcc6a1ea46f2c26a662a7407394fe84589198aeaa83dd7a9d6",
-    "piper/piper_phonemize.data": "29f1025eb23a5b5c192cd14a6efbce4509402ff265405072ee6f7d1a09b78f8c",
-    "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json": "5521dcb09adf68a9bee289032f7f5af18d29bff020953429b5d223ec1f881816",
-    "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx": "d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37",
-    "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json": "d521dc45504a8ccc99e325822b35946dd701840bfb07e3dbb31a40929ed6a82b",
-    "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx": "9929917bf8cabb26fd528ea44d3a6699c11e87317a14765312420be230be0f3d",
+    "pinyin/pinyin-pro.js": "a488173470768ace074c3c4fffbb880e83523b3aa9598a8147c930e7f2d5c7dc",
+    "pinyin/LICENSE": "824f6069c5a59b0c1650d0fb9f8d091866c6019eb761c8e658dfc03f001eabd2",
+    "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json": "48477042ba5f07dc1f10ac535a25f21bb6a0f9c40581d2f6d0ce5f51a1d347a6",
+    "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx": "83a5268616ad0aa2d3e2b67158824b5e23b24e0973473ce28859c059457b824e",
     "tesseract/tesseract.min.js": "a8e29918d098b2b06e1012bdaeffb4aec0445c5d5654709023e0bd1f442a80e8",
     "tesseract/worker.min.js": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
     "tesseract/core/tesseract-core.wasm.js": "2b8c8c92b8788807061fb4bb16c5acdf000c149e100255f879f78d2c58ca9969",

@@ -11,22 +11,22 @@
       --gold:#8A6300;
       --green:#007A4D;
       --ivory:#F6F3EE;
-      --purple:#806D9E;
+      --purple:#75608F;
       --bg:var(--ivory);
       --font-sans: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
     }
     *{box-sizing:border-box}
-    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#fff);font-family:var(--font-sans);color:#222}
-    .app{max-width:1100px;margin:28px auto;padding:22px;border-radius:14px;background:linear-gradient(180deg,rgba(255,255,255,0.9),rgba(250,250,250,0.6));box-shadow:0 8px 30px rgba(0,0,0,0.08);display:grid;grid-template-columns:420px 1fr;gap:22px}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-sans);color:#222}
+    .app{max-width:1100px;margin:28px auto;padding:22px;border-radius:14px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,0.08);display:grid;grid-template-columns:420px 1fr;gap:22px}
 
     header{grid-column:1/-1;display:flex;align-items:center;gap:14px}
     header img.logo{width:64px;height:64px;object-fit:contain}
     header h1{margin:0;font-size:22px;color:var(--purple);letter-spacing:1px}
 
     .left{display:flex;flex-direction:column;gap:12px}
-    .panel{padding:14px;border-radius:10px;background:linear-gradient(90deg,rgba(255,255,255,0.85),rgba(250,250,250,0.9));border:2px solid rgba(0,0,0,0.03)}
+    .panel{padding:14px;border-radius:10px;background:#fcfcfc;border:2px solid rgba(0,0,0,0.03)}
 
-    .canvas-wrap{background:linear-gradient(180deg,#fff 0%, #fafafa 100%);padding:16px;border-radius:10px;border:3px solid var(--gold);display:flex;flex-direction:column;align-items:center}
+    .canvas-wrap{background:#fff;padding:16px;border-radius:10px;border:3px solid var(--gold);display:flex;flex-direction:column;align-items:center}
     canvas#drawCanvas{background:#fff;width:360px;height:360px;border:2px solid #ddd;border-radius:6px; touch-action: none; cursor:crosshair;}
 
     .tools{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -192,7 +192,7 @@
           <b>音声設定</b>
           <div class="tts-controls">
             <label for="voiceSelect">音声:</label>
-            <select id="voiceSelect" style="flex:1;" title="Piper（huayan）の学習データのライセンスは未明記です。詳細は THIRD_PARTY_NOTICES.md。">
+            <select id="voiceSelect" style="flex:1;" title="Piper の中国語音声は CC0 学習データの chaowen を使用します。">
               <option value="">読み込み中...</option>
             </select>
           </div>
@@ -220,15 +220,16 @@
 
     // Piper / ONNX Runtime Web（ブラウザ内ニューラルTTS。音声データは外部APIに送信しない）
     const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
-    const PHONEMIZE_BASE = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/';
+    const PINYIN_PRO_BASE = 'https://cdn.jsdelivr.net/npm/pinyin-pro@3.29.5/dist/';
     const PIPER_VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
     const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-    const PIPER_CACHE_NAME = 'sarutahico-piper-v1';
-    // ライセンス: エンジンは MIT / 音声は Rhasspy Piper 配布。huayan の学習データのライセンスは未明記。
+    // Bumped from v1 when replacing huayan: v1 held the removed 63 MB model.
+    const PIPER_CACHE_NAME = 'sarutahico-piper-v2';
+    // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
     const PIPER_VOICES = {
-      'piper:medium': { path: 'zh/zh_CN/huayan/medium/zh_CN-huayan-medium', label: '高品質', note: 'モデル約63MB' },
-      'piper:xlow': { path: 'zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low', label: '軽量', note: 'モデル約20MB' }
+      'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
     };
+    const PINYIN_INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
     const DEFAULT_VOICE = 'piper:medium';
 
     // ---- 内蔵辞書（オフラインモード用） ----
@@ -658,7 +659,6 @@
     let tesseractOptions = null;
     let piperSession = null;
     let piperLoading = null;
-    let phonemizeLocal = false;
     let activeAudio = null;
     let activeAudioUrl = null;
     let activeUtterance = null;
@@ -1260,7 +1260,6 @@
         activeUtterance = null;
       }
       if (window.speechSynthesis) window.speechSynthesis.cancel();
-      if (piperSession && typeof piperSession.cancelPending === 'function') piperSession.cancelPending();
       resetPlaybackUI();
       setTtsStatus('');
     }
@@ -1302,16 +1301,15 @@
     }
 
     async function loadPiperRuntime() {
-      if (window.ort && typeof window.createPiperPhonemize === 'function') return;
+      if (window.ort && window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return;
       setTtsStatus('ニューラル音声のエンジンを読み込み中...');
       const ortAsset = await resolveAsset('vendor/ort/ort.min.js', ORT_BASE + 'ort.min.js');
       await loadScript(ortAsset.url);
-      const phonemizeAsset = await resolveAsset('vendor/piper/piper_phonemize.js', PHONEMIZE_BASE + 'piper_phonemize.js');
-      await loadScript(phonemizeAsset.url);
-      if (!window.ort || typeof window.createPiperPhonemize !== 'function') {
+      const pinyinAsset = await resolveAsset('vendor/pinyin/pinyin-pro.js', PINYIN_PRO_BASE + 'index.js');
+      await loadScript(pinyinAsset.url);
+      if (!window.ort || !window.pinyinPro || typeof window.pinyinPro.pinyin !== 'function') {
         throw new Error('Piper runtime load failed');
       }
-      phonemizeLocal = phonemizeAsset.local;
       window.ort.env.wasm.wasmPaths = ortAsset.local ? new URL('vendor/ort/', location.href).href : ORT_BASE;
       window.ort.env.wasm.numThreads = 1;
       window.ort.env.wasm.proxy = false;
@@ -1418,66 +1416,35 @@
           executionProviders: ['wasm']
         });
 
-        setPrepStatus('発音データを読み込み中...');
-        let pendingPhonemes = null;
-        const settlePhonemes = (kind, value) => {
-          const pending = pendingPhonemes;
-          if (!pending) return;
-          pendingPhonemes = null;
-          clearTimeout(pending.timer);
-          if (kind === 'resolve') pending.resolve(value);
-          else pending.reject(value);
+        // Piper's pinyin voices use separate initial/final/tone symbols.
+        // Emitting symbols ourselves avoids an espeak phonemizer and its 18 MB assets.
+        const idMap = config.phoneme_id_map || {};
+        const has = (symbol) => Array.isArray(idMap[symbol]);
+        const phonemize = (text) => {
+          const syllables = window.pinyinPro.pinyin(String(text), {
+            toneType: 'num', type: 'array', nonZh: 'consecutive'
+          });
+          const phonemes = [];
+          const dropped = [];
+          syllables.forEach(syllable => {
+            const match = String(syllable).toLowerCase().match(/^([a-zü]+)([0-5])?$/);
+            if (!match) return;
+            let body = match[1].replace(/ü/g, 'v');
+            const initial = PINYIN_INITIALS.find(x => body.startsWith(x) && has(x));
+            if (initial) {
+              phonemes.push(initial);
+              body = body.slice(initial.length);
+            }
+            if (body && has(body)) phonemes.push(body);
+            else if (body) dropped.push(body);
+            // pinyin-pro emits tone 0 for neutral syllables; chaowen's map uses 5.
+            const tone = match[2] === '0' ? '5' : match[2];
+            if (tone && has(tone)) phonemes.push(tone);
+          });
+          if (dropped.length) console.warn('[piper] Unknown pinyin finals omitted:', dropped);
+          return { phonemes };
         };
-        const phonemizer = await window.createPiperPhonemize({
-          print: (data) => {
-            if (!pendingPhonemes) return;
-            try {
-              const parsed = JSON.parse(data);
-              if (!Array.isArray(parsed.phoneme_ids) || !Array.isArray(parsed.phonemes)) return;
-              settlePhonemes('resolve', parsed);
-            } catch (e) {
-              // Emscripten may print non-JSON diagnostics; keep waiting for real output.
-            }
-          },
-          printErr: (message) => {
-            console.warn('[piper]', message);
-            if (!pendingPhonemes) return;
-            pendingPhonemes.stderr.push(String(message));
-            if (/missing phoneme|unknown phoneme|phoneme .* not (?:found|supported)|unsupported phoneme|failed to phonemize|phonemiz\w* failed/i.test(String(message))) {
-              settlePhonemes('reject', new Error('Phonemizer error: ' + message));
-            }
-          },
-          locateFile: (file) => {
-            const dir = phonemizeLocal ? 'vendor/piper/' : PHONEMIZE_BASE;
-            if (file.endsWith('.wasm')) return dir + 'piper_phonemize.wasm';
-            if (file.endsWith('.data')) return dir + 'piper_phonemize.data';
-            return file;
-          }
-        });
-
-        const phonemize = (text, lang) => new Promise((resolve, reject) => {
-          if (pendingPhonemes) {
-            reject(new Error('Phonemizer is busy'));
-            return;
-          }
-          const pending = { resolve, reject, timer: null, stderr: [] };
-          pendingPhonemes = pending;
-          pending.timer = setTimeout(() => {
-            settlePhonemes('reject', new Error('Phonemizer timeout'));
-          }, 20000);
-          try {
-            phonemizer.callMain([
-              '-l', lang,
-              '--input', JSON.stringify([{ text }]),
-              '--espeak_data', '/espeak-ng-data'
-            ]);
-          } catch (e) {
-            settlePhonemes('reject', e);
-          }
-        });
-
-        const cancelPending = () => settlePhonemes('reject', new Error('Phonemize canceled'));
-        piperSession = { voiceId, session, config, phonemize, cancelPending };
+        piperSession = { voiceId, session, config, phonemize };
         setPrepStatus(`Piper（${voice.label}）の準備ができました`);
         return piperSession;
       })();
@@ -1497,10 +1464,9 @@
         const engine = await getPiperSession(voiceId);
         if (token !== playbackToken) return;
         setTtsStatus('ニューラル音声を生成中...');
-        const phonemes = await engine.phonemize(text, engine.config.espeak.voice);
+        const phonemes = engine.phonemize(text);
         if (token !== playbackToken) return;
-        // The browser phonemizer uses a newer symbol table than the huayan voices.
-        // Map by symbol so tone IDs outside the model's embedding cannot reach it.
+        // Map by symbol so IDs outside the model's embedding cannot reach it.
         const idMap = engine.config.phoneme_id_map || {};
         const idOf = (symbol, fallback) => Array.isArray(idMap[symbol]) ? Number(idMap[symbol][0]) : fallback;
         const bos = idOf('^', 1);
