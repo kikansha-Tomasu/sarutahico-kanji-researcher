@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+*.part
+*.tmp
+node_modules/
+check.js
+.vscode/
