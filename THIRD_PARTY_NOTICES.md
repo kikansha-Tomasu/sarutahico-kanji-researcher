@@ -26,4 +26,4 @@ The optional API mode talks to a user-supplied OpenAI-compatible endpoint. No AP
 
 ## Original code
 
-The original application code in this repository (`main.html`, `tools/`, documentation) has no license file. Contact the author before reuse.
+The original application code in this repository (`main.html`, `tools/`, documentation) is licensed under the MIT License; see [`LICENSE`](LICENSE). Bundled third-party assets keep their own licenses as described above.

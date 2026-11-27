@@ -3,5 +3,7 @@ Thumbs.db
 *.part
 *.tmp
 node_modules/
+__pycache__/
+*.pyc
 check.js
 .vscode/

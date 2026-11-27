@@ -2,20 +2,30 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+This repository is a single-file browser application with no versioned
+releases. Security fixes are applied to the `main` branch.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| Branch | Supported |
+| ------ | --------- |
+| `main` | ✅       |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+Please report security issues privately through GitHub's
+"Report a vulnerability" feature on this repository's Security tab. Do not
+open a public issue for an unfixed vulnerability.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Include the affected file/line, reproduction steps, and the impact you
+observed. You can expect an acknowledgement within a week. Once the issue is
+confirmed, a fix will be committed to `main` with a commit message describing
+the vulnerability; you will be notified when the fix is public. Reports that
+are declined will be explained with the reason.
+
+## Scope and design notes
+
+- The application runs entirely in the browser. API mode is opt-in and sends
+  data only to an endpoint the user supplies.
+- Runtime assets are bundled in `vendor/`. CDN fallbacks are only used with
+  Subresource Integrity, and secondary assets must exist locally (fail-closed).
+- Optional remote voice downloads are verified against SHA-256 before use or
+  caching.

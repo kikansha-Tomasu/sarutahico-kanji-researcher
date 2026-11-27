@@ -271,8 +271,13 @@
     const PINYIN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
     const DEFAULT_VOICE = 'piper:medium';
 
-    // ---- Chinese number expansion (matches unicode_rbnf 2.4.0 "zh") ----
-    const CHINESE_GROUP_UNITS = ['', '万', '亿', '兆', '京'];
+    // ---- Chinese number expansion (matches unicode_rbnf 2.4.0 "zh" up to 京) ----
+    // CLDR/unicode_rbnf only defines units through 京 (10^16). Beyond that we
+    // use the classical Chinese large-number names so digit groups never lose
+    // their unit and produce a garbled reading.
+    const CHINESE_GROUP_UNITS = [
+      '', '万', '亿', '兆', '京', '垓', '秭', '穰', '沟', '涧', '正', '载', '极'
+    ];
 
     function spellUnderTenThousand(value, leadingOne = false) {
       const digits = PINYIN_DIGITS;
@@ -305,6 +310,11 @@
     function spellChineseInteger(value) {
       const digits = String(value).replace(/^0+(?=\d)/, '');
       if (digits === '0') return '〇';
+      // No named unit exists above 极 (10^48). Digit-by-digit reading is
+      // faithful; omitting the unit would silently corrupt the value.
+      if (Math.ceil(digits.length / 4) > CHINESE_GROUP_UNITS.length) {
+        return Array.from(digits, d => PINYIN_DIGITS[Number(d)]).join('');
+      }
       const groups = [];
       for (let end = digits.length; end > 0; end -= 4) {
         groups.push(Number(digits.slice(Math.max(0, end - 4), end)));
@@ -349,6 +359,8 @@
 
     function expandChineseNumbers(text) {
       let source = String(text).replace(/[“”"]/g, '');
+      // Thousands separators are punctuation, not digits: "1,000" is 一千.
+      source = source.replace(/(\d)[,，](?=\d{3}(?!\d))/g, '$1');
       // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
       source = source.replace(/([〇零一二三四五六七八九]+)\s*年/g, (_, year) => {
         return year.replace(/零/g, '〇') + '年';
@@ -992,12 +1004,18 @@
     }
 
     // ---- ローカル同梱アセットを優先し、無ければ CDN を使う ----
-    async function resolveAsset(localPath, remoteUrl) {
+    async function resolveAsset(localPath, remoteUrl, { requireSri = true } = {}) {
       try {
         const res = await fetch(localPath, { method: 'HEAD', cache: 'no-store' });
         if (res.ok) return { url: localPath, local: true, integrity: '' };
       } catch (e) { /* local assets are optional */ }
-      return { url: remoteUrl, local: false, integrity: CDN_SRI[remoteUrl] || '' };
+      const integrity = CDN_SRI[remoteUrl] || '';
+      // SRI 未定義の CDN を無検証で実行しない。音声モデルは
+      // PIPER_ASSET_SRI で別途検証するためのみオプトアウトを許可する。
+      if (requireSri && !integrity) {
+        throw new Error(`CDN フォールバックの SRI が定義されていません: ${remoteUrl}`);
+      }
+      return { url: remoteUrl, local: false, integrity };
     }
 
     async function requireLocalAssets(paths) {
@@ -1263,7 +1281,7 @@
         { psm: 13, label: 'raw line' },       // Raw line (no OSD)
       ];
       let bestResult = '';
-      let bestConfidence = 0;
+      let bestConfidence = -1; // confidence 0 の候補も採用するため
       for (const mode of modes) {
         try {
           await tesseractWorker.setParameters({ tessedit_pageseg_mode: mode.psm });
@@ -1595,7 +1613,8 @@
         await loadPiperRuntime();
         const modelAsset = await resolveAsset(
           `vendor/piper/models/${voice.path}.onnx`,
-          `${PIPER_VOICES_URL}/${voice.path}.onnx`
+          `${PIPER_VOICES_URL}/${voice.path}.onnx`,
+          { requireSri: false } // PIPER_ASSET_SRI でダウンロード後に検証する
         );
         const base = modelAsset.local ? `vendor/piper/models/${voice.path}` : `${PIPER_VOICES_URL}/${voice.path}`;
         // Vendored files are verified by tools/fetch-assets.py. A remote
@@ -1645,11 +1664,11 @@
             if (initial) {
               phonemes.push(initial);
               body = body.slice(initial.length);
-              // g2pW writes ü after j/q/x/y as "u:" (normalized to "v");
-              // pinyin-pro writes a plain "u" (ju/jun/quan/yuan).
-              if (initial === 'j' || initial === 'q' || initial === 'x' || initial === 'y') {
-                body = body.replace(/u/g, 'v');
-              }
+              // pinyin-pro already matches upstream g2pW for j/q/x/y finals
+              // (ju/quan/yue/yun stay plain u; see upstream test_phonemize:
+              // 语 -> ["y","u","3"]). Only literal ü from n/l was normalized
+              // to v above. Do not add an extra u->v conversion here: it
+              // would deviate from the sequence used to train chaowen.
             } else if (has('Ø')) {
               phonemes.push('Ø');
             }

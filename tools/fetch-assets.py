@@ -168,6 +168,144 @@ def check_cdn_sri() -> list[str]:
     return failures
 
 
+def _split_top_level(text: str) -> list[str]:
+    """Split a JavaScript call argument list on top-level commas."""
+    args: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    quote = ""
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < len(text):
+                buf.append(text[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"`":
+            quote = ch
+            buf.append(ch)
+        elif ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == "," and depth == 0:
+            args.append("".join(buf).strip())
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        args.append(tail)
+    return args
+
+
+def _call_arguments(html: str, name: str) -> list[list[str]]:
+    """Collect argument lists of `await name(...)` calls in main.html."""
+    calls: list[list[str]] = []
+    for match in re.finditer(r"await\s+" + re.escape(name) + r"\(", html):
+        start = match.end()
+        depth = 1
+        quote = ""
+        i = start
+        while i < len(html) and depth:
+            ch = html[i]
+            if quote:
+                if ch == "\\" and i + 1 < len(html):
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = ""
+            elif ch in "'\"`":
+                quote = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            i += 1
+        if depth:
+            continue
+        calls.append(_split_top_level(html[start:i - 1]))
+    return calls
+
+
+def check_asset_call_sites(html: str) -> list[str]:
+    """Every CDN fallback must resolve to a declared SRI hash.
+
+    `resolveAsset()` now fails closed at runtime when a remote URL has no SRI.
+    This check catches a typo at build time instead, and allows the one
+    intentional opt-out (the Piper model, verified via PIPER_ASSET_SRI).
+    """
+    constants = dict(re.findall(
+        r"const (ORT_BASE|PINYIN_PRO_BASE|TESSERACT_CDN|PIPER_VOICES_URL) = '([^']+)';", html
+    ))
+
+    def resolve(expr: str) -> str:
+        expr = expr.strip()
+        if expr in constants:
+            return constants[expr]
+        match = re.fullmatch(r"(\w+)\s*\+\s*'([^']+)'", expr)
+        if match and match.group(1) in constants:
+            return constants[match.group(1)] + match.group(2)
+        return expr
+
+    declared = set(re.findall(r"^\s*\[([^\]]+)\]\s*:\s*'sha256-", html, re.M))
+    declared = {resolve(url) for url in declared}
+    failures: list[str] = []
+    calls = _call_arguments(html, "resolveAsset")
+    if not calls:
+        return ["no await resolveAsset(...) call found in main.html"]
+    for args in calls:
+        local = args[0] if args else ""
+        remote = args[1] if len(args) > 1 else ""
+        opts = re.sub(r"//[^\n]*", "", args[2]) if len(args) > 2 else ""
+        opts = re.sub(r"\s+", "", opts)
+        if opts == "{requireSri:false}":
+            if "vendor/piper/models/" not in local:
+                failures.append(f"unexpected SRI opt-out in resolveAsset: {local}")
+            continue
+        url = resolve(remote)
+        if not url or url not in declared:
+            failures.append(f"resolveAsset remote URL has no CDN_SRI entry: {remote} -> {url}")
+    return failures
+
+
+def check_local_asset_arrays(html: str) -> list[str]:
+    """Ensure hard-coded secondary asset paths match the manifest exactly."""
+    manifest_rels = {rel for _, rel, _ in MANIFEST}
+    listed: set[str] = set()
+    failures: list[str] = []
+    for name in ("TESSERACT_LOCAL_ASSETS", "ORT_LOCAL_ASSETS"):
+        match = re.search(rf"const {name}\s*=\s*\[(.*?)\];", html, re.S)
+        if not match:
+            failures.append(f"{name} not found in main.html")
+            continue
+        entries = re.findall(r"['\"]([^'\"]+)['\"]", match.group(1))
+        rels = {e[len("vendor/"):] if e.startswith("vendor/") else e for e in entries}
+        unknown = sorted(rels - manifest_rels)
+        if unknown:
+            failures.append(f"{name} has paths missing from MANIFEST: {unknown}")
+        listed.update(rels)
+    voice_rels = {
+        "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx",
+        "piper/models/zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json",
+    }
+    main_scripts = {"tesseract/tesseract.min.js", "ort/ort.min.js", "pinyin/pinyin-pro.js"}
+    expected = manifest_rels - main_scripts - voice_rels - {"pinyin/LICENSE"}
+    if listed != expected:
+        failures.append(
+            "secondary asset arrays mismatch: "
+            f"missing={sorted(expected - listed)}, extra={sorted(listed - expected)}"
+        )
+    return failures
+
+
 def check_git_tracking() -> list[str]:
     """Report manifest assets that are present but not committed to git."""
     if not os.path.isdir(os.path.join(ROOT, ".git")):
@@ -222,7 +360,10 @@ def main() -> int:
                 os.remove(tmp)
             failures.append((rel, str(exc)))
             print(f"FAILED   {rel}: {exc}", file=sys.stderr)
-    sri_failures = check_cdn_sri() + check_git_tracking()
+    with open(os.path.join(ROOT, "main.html"), encoding="utf-8") as f:
+        html = f.read()
+    sri_failures = (check_cdn_sri() + check_asset_call_sites(html)
+                    + check_local_asset_arrays(html) + check_git_tracking())
     for failure in sri_failures:
         print(f"FAILED   {failure}", file=sys.stderr)
     failures.extend(sri_failures)
