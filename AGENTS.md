@@ -29,10 +29,20 @@
   `phoneme_type: pinyin` のため espeak phonemizer は不要。`pinyin-pro` で
   声母・韻母・声調のシンボル列を作り、`phoneme_id_map` で ID 化する。
   BOS/EOS/pad も同マップから取得し、未対応音素は `console.warn` に記録する。
-- pinyin-pro の軽声は `de0` / `ma0` のように声調 `0` で出力されるが、chaowen の
-  地図には `0` が無く `5` が軽声に対応する。`0` は `5` へ変換しないと
-  「的」「妈妈」などの音節が丸ごと失われるため、必ず正規表現 `[0-5]` で
-  受けて `5` にマッピングする（回帰テスト `test-neutral-tone.js` あり）。
+- 音素系列は上流 `OHF-Voice/piper1-gpl` の `phonemize_chinese.py` に厳密に合わせる。
+  旧 espeak ボイスの方式（`BOS,pad,...` と全音素後に pad）を流用すると学習時と
+  異なる系列になり発音が崩れる。正しくは BOS の後に pad を入れず、
+  `GROUP_END_PHONEMES`（声調 1〜5 と句読点・空白）の後のみ pad を入れる。
+- 零声母は `Ø`（ID 3）を明示する。`爱` は `['Ø','ai','4']`、`中` は
+  `['zh','ong','1']`、対応 ID はそれぞれ `[1,3,30,67,0,2]` / `[1,18,38,64,0,2]`。
+- pinyin-pro は軽声を `de0` / `ma0` と出力するが chaowen の地図には `0` が無く
+  `5` が軽声なので `0`→`5` に変換する。j/q/x/y 後の `u` は g2pW の `u:` に
+  相当するため `v` へ正規化する（`ju1`→`j,v,1`、`quan2`→`q,van,2`）。
+- 句読点は `phoneme_id_map` の実シンボルとして保持し、数字は pinyin 変換前に
+  漢字へ展開する（上流の `unicode_rbnf` の簡易版）。
+- 検証は一時的な Playwright スクリプトで実施する（リポジトリには含めない）。
+  起動は `python tools/serve.py`、`http://127.0.0.1:8123/main.html` に対して
+  `piperSession.phonemize()` と ID 化結果を上記期待値と突き合わせる。
 - 再生停止・音声エラー時は `setTtsStatus('')` で状態表示もクリアする。
 - UI 文言は「オフライン」ではなく「API不要」に統一する。実行時は `vendor/` の
   同梱アセットを優先し、無い場合のみ CDN へフォールバックする。

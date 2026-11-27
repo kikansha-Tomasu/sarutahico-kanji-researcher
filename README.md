@@ -46,7 +46,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 ブラウザ検証は Playwright（`playwright-core` + Edge）で実施しています。主な確認項目:
 
 - OCR（`中` の認識）、Piper `chaowen` の WAV 生成、ブラウザ音声フォールバック
-- 再生中のボタン切替、準備中の停止、ピンイン音素化（`zh` / `ong` / `1`、軽声 `0`→`5`）
+- 再生中のボタン切替、準備中の停止、上流準拠のピンイン音素化
+  （零声母 `Ø`、軽声 `0`→`5`、ü の `v` 化、グループ末尾のみ pad）
 - 外部通信を遮断した状態での OCR / Piper 動作
 - axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
 - Firefox の OCR / Piper、WebKit の OCR / モデル推論
@@ -70,4 +71,4 @@ sarutahico_logo.png          ヘッダーロゴ
 - 動作確認済み: Chromium 系（Edge）と Firefox で OCR・Piper 再生・axe 検証が完了しています。
 - WebKit（Safari 系エンジン）では OCR とモデル推論まで確認できましたが、検証用ヘッドレスビルドに音声出力機能が無いため再生は未検証です。実機 Safari も未検証です。
 - 初回のモデル読み込みには数秒〜十数秒かかります（同梱アセットがある場合はダウンロードは発生しません）。
-- 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値までを検証しています。
+- 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値と、上流 `piper1-gpl` の音素/ID 系列との一致までを検証しています。

@@ -230,6 +230,9 @@
       'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
     };
     const PINYIN_INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
+    // Matches piper1-gpl phonemize_chinese.py::GROUP_END_PHONEMES.
+    const PIPER_GROUP_END = new Set(['1', '2', '3', '4', '5', '。', '？', '！', '.', '?', '!', '—', '…', '、', '，', '：', '；', ',', ':', ';', ' ']);
+    const PINYIN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
     const DEFAULT_VOICE = 'piper:medium';
 
     // ---- 内蔵辞書（オフラインモード用） ----
@@ -1416,24 +1419,41 @@
           executionProviders: ['wasm']
         });
 
-        // Piper's pinyin voices use separate initial/final/tone symbols.
-        // Emitting symbols ourselves avoids an espeak phonemizer and its 18 MB assets.
+        // Follow piper1-gpl's pinyin frontend so the ID sequence matches training:
+        // zero initial "Ø", ü-family "v", neutral tone 5, and punctuation symbols.
+        // This avoids the espeak phonemizer and its 18 MB assets.
         const idMap = config.phoneme_id_map || {};
         const has = (symbol) => Array.isArray(idMap[symbol]);
         const phonemize = (text) => {
-          const syllables = window.pinyinPro.pinyin(String(text), {
+          // Bare digits are not in the phoneme map; spell them out before pinyin
+          // conversion, matching piper1-gpl's number expansion.
+          const source = String(text).replace(/\d/g, d => PINYIN_DIGITS[Number(d)]);
+          const syllables = window.pinyinPro.pinyin(source, {
             toneType: 'num', type: 'array', nonZh: 'consecutive'
-          });
+          }).map(item => String(item));
           const phonemes = [];
           const dropped = [];
-          syllables.forEach(syllable => {
-            const match = String(syllable).toLowerCase().match(/^([a-zü]+)([0-5])?$/);
-            if (!match) return;
+          syllables.forEach(item => {
+            const symbol = String(item);
+            const match = symbol.toLowerCase().match(/^([a-zü]+)([0-5])?$/);
+            if (!match) {
+              // Punctuation and spaces are valid symbols in the pinyin voice.
+              if (has(symbol)) phonemes.push(symbol);
+              else dropped.push(symbol);
+              return;
+            }
             let body = match[1].replace(/ü/g, 'v');
             const initial = PINYIN_INITIALS.find(x => body.startsWith(x) && has(x));
             if (initial) {
               phonemes.push(initial);
               body = body.slice(initial.length);
+              // g2pW writes ü after j/q/x/y as "u:" (normalized to "v");
+              // pinyin-pro writes a plain "u" (ju/jun/quan/yuan).
+              if (initial === 'j' || initial === 'q' || initial === 'x' || initial === 'y') {
+                body = body.replace(/u/g, 'v');
+              }
+            } else if (has('Ø')) {
+              phonemes.push('Ø');
             }
             if (body && has(body)) phonemes.push(body);
             else if (body) dropped.push(body);
@@ -1441,7 +1461,7 @@
             const tone = match[2] === '0' ? '5' : match[2];
             if (tone && has(tone)) phonemes.push(tone);
           });
-          if (dropped.length) console.warn('[piper] Unknown pinyin finals omitted:', dropped);
+          if (dropped.length) console.warn('[piper] Unknown pinyin symbols omitted:', dropped);
           return { phonemes };
         };
         piperSession = { voiceId, session, config, phonemize };
@@ -1467,17 +1487,22 @@
         const phonemes = engine.phonemize(text);
         if (token !== playbackToken) return;
         // Map by symbol so IDs outside the model's embedding cannot reach it.
+        // piper1-gpl pads only after group-end symbols, not after BOS/every phoneme.
         const idMap = engine.config.phoneme_id_map || {};
         const idOf = (symbol, fallback) => Array.isArray(idMap[symbol]) ? Number(idMap[symbol][0]) : fallback;
         const bos = idOf('^', 1);
         const eos = idOf('$', 2);
         const pad = idOf('_', 0);
-        const ids = [bos, pad];
+        const ids = [bos];
         const dropped = [];
         (phonemes.phonemes || []).forEach(phoneme => {
           const mapped = idMap[phoneme];
-          if (Array.isArray(mapped)) mapped.forEach(id => ids.push(Number(id), pad));
-          else dropped.push(phoneme);
+          if (!Array.isArray(mapped)) {
+            dropped.push(phoneme);
+            return;
+          }
+          mapped.forEach(id => ids.push(Number(id)));
+          if (PIPER_GROUP_END.has(phoneme)) ids.push(pad);
         });
         ids.push(eos);
         if (dropped.length) console.warn('[piper] Unsupported phonemes omitted:', dropped);
