@@ -32,7 +32,7 @@ python tools/serve.py
 python tools/fetch-assets.py
 ```
 
-`vendor/` が無い場合やファイルが壊れている場合は CDN へフォールバックしますが、その際は外部通信が発生します。厳密に外部通信を避けたい場合は `vendor/` を保持してください。
+主要スクリプト（`tesseract.min.js` / `ort.min.js` / `piper_phonemize.js` / 音声モデル）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。`worker.min.js`・`core/`・`lang/`・`.wasm`・`.data` などの二次アセットが欠落している場合は CDN フォールバックせず失敗するため、`tools/fetch-assets.py` を再実行してください。同スクリプトはサイズと SHA-256 の両方で整合性を検証します。
 
 同梱アセットのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。特に `huayan` 音声モデルの学習データのライセンスは未明記です。公開リポジトリで再配布する場合は事前に確認してください。
 

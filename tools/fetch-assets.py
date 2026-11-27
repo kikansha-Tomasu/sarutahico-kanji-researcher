@@ -4,8 +4,9 @@
 Run:
     python tools/fetch-assets.py
 
-Assets are written under vendor/. Re-running only replaces files whose size
-does not match the manifest, so it is safe to use for updates.
+Assets are written under vendor/. Re-running replaces files whose size or
+SHA-256 does not match the manifest. Upstream version changes require updating
+the manifest URLs, sizes and hashes.
 """
 from __future__ import annotations
 
@@ -54,6 +55,32 @@ MANIFEST = [
     (TESS_LANG + "chi_sim.traineddata.gz", "tesseract/lang/chi_sim.traineddata.gz", 1718768),
 ]
 
+SHA256 = {
+    "ort/ort.min.js": "924e4fcdfdf69acccff3d024d6e1ad3f41ca858d27fc4dd59fc4927dd933e7db",
+    "ort/ort-wasm-simd-threaded.wasm": "71aef04959c5c1b6de461b6538e2058e306610034a85aad2742d0c7fd4533fe4",
+    "ort/ort-wasm-simd-threaded.mjs": "30dd851d9c00622940500f71ddd2ff8820c5cb65270816080175b958705385a8",
+    "ort/ort-wasm-simd-threaded.jsep.mjs": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8",
+    "ort/ort-wasm-simd-threaded.jsep.wasm": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368",
+    "piper/piper_phonemize.js": "fef0c2fc442d24fdef5c7c7cc37d5da2314407640fe11ab1bfe347c723dff19b",
+    "piper/piper_phonemize.wasm": "b777cd107a91d2bcc6a1ea46f2c26a662a7407394fe84589198aeaa83dd7a9d6",
+    "piper/piper_phonemize.data": "29f1025eb23a5b5c192cd14a6efbce4509402ff265405072ee6f7d1a09b78f8c",
+    "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json": "5521dcb09adf68a9bee289032f7f5af18d29bff020953429b5d223ec1f881816",
+    "piper/models/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx": "d30b143fac66d821a1285aa013295adf5cd129d3cc11d70334e51c7b20662c37",
+    "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx.json": "d521dc45504a8ccc99e325822b35946dd701840bfb07e3dbb31a40929ed6a82b",
+    "piper/models/zh/zh_CN/huayan/medium/zh_CN-huayan-medium.onnx": "9929917bf8cabb26fd528ea44d3a6699c11e87317a14765312420be230be0f3d",
+    "tesseract/tesseract.min.js": "a8e29918d098b2b06e1012bdaeffb4aec0445c5d5654709023e0bd1f442a80e8",
+    "tesseract/worker.min.js": "aca1229639fc9907d86f96e825955a2b7c5716d17f3bc3acd71f9c7ab66181fc",
+    "tesseract/core/tesseract-core.wasm.js": "2b8c8c92b8788807061fb4bb16c5acdf000c149e100255f879f78d2c58ca9969",
+    "tesseract/core/tesseract-core.wasm": "b47a852b19181ae0999f9d970c368cd351135a320ea978b35bd38602d8bcc0bc",
+    "tesseract/core/tesseract-core-simd.wasm.js": "63f232c4f7a97b04e52eb940202700b2c6239783a75d0ff0553274fac530cd5c",
+    "tesseract/core/tesseract-core-simd.wasm": "baa2f54ef5af43ada4605fd7ae999bde3c6ecc96bfe0d0410b0b4f4a5f9c8b91",
+    "tesseract/core/tesseract-core-lstm.wasm.js": "8f04aa0cc81e7bde33f80e92fa01a7a665f0b4884d098acf5de9c7104a11dfaa",
+    "tesseract/core/tesseract-core-lstm.wasm": "5db58ea4d1bd4256be81e8ae3b4fa226c4625dfba1850b1b3308dbf3700e9929",
+    "tesseract/core/tesseract-core-simd-lstm.wasm.js": "ce20eda9533cbed1e6c2b4276fbae1e0adc61b6754b5513084be601787b457cf",
+    "tesseract/core/tesseract-core-simd-lstm.wasm": "66b601224a0c4a8977bc9d92dd39841189f9ca22cc4122fcd7208cdb0961eeef",
+    "tesseract/lang/chi_sim.traineddata.gz": "b8a23f10c7de500891eb458a8adc9cc58ab7f242f08b7d149f5e9aea4ad5db7c",
+}
+
 
 def sha256(path: str) -> str:
     h = hashlib.sha256()
@@ -68,7 +95,8 @@ def main() -> int:
     for url, rel, expected in MANIFEST:
         dest = os.path.join(VENDOR, rel.replace("/", os.sep))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        if os.path.exists(dest) and os.path.getsize(dest) == expected:
+        if (os.path.exists(dest) and os.path.getsize(dest) == expected
+                and sha256(dest) == SHA256[rel]):
             print(f"OK       {rel} ({expected:,} bytes)")
             continue
         print(f"DOWNLOAD {rel} ...", flush=True)
@@ -84,8 +112,11 @@ def main() -> int:
             size = os.path.getsize(tmp)
             if expected and size != expected:
                 raise RuntimeError(f"size mismatch: expected {expected}, got {size}")
+            digest = sha256(tmp)
+            if digest != SHA256[rel]:
+                raise RuntimeError(f"sha256 mismatch: expected {SHA256[rel][:16]}, got {digest[:16]}")
             os.replace(tmp, dest)
-            print(f"SAVED    {rel} sha256={sha256(dest)[:16]}")
+            print(f"SAVED    {rel} sha256={digest[:16]}")
         except Exception as exc:  # keep going, report all failures at the end
             if os.path.exists(tmp):
                 os.remove(tmp)
