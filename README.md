@@ -32,7 +32,7 @@ python tools/serve.py
 python tools/fetch-assets.py
 ```
 
-主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js` / 音声モデル）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。`worker.min.js`・`core/`・`lang/`・`.wasm` などの二次アセットが欠落している場合は CDN フォールバックせず失敗するため、`tools/fetch-assets.py` を再実行してください。同スクリプトはサイズと SHA-256 の両方で整合性を検証します。
+主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js`）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。CDN 読み込みには SRI（Subresource Integrity）を設定しており、改ざんされたレスポンスはブラウザが拒否します。`worker.min.js`・`core/`・`lang/`・`.wasm` などライブラリ内部で読み込まれる二次アセットは SRI を付けられないため、主要スクリプトが CDN フォールバックした場合でも**常にローカル同梱のパスを使います**。欠落時は未検証コードの実行を避けて処理を失敗させ、再取得を促すメッセージを表示します。`tools/fetch-assets.py` はサイズ・SHA-256 に加えて、`main.html` の SRI ハッシュが同梱ファイルと一致するかも検証します。音声モデルだけが無い場合は Hugging Face から取得します（このファイルの完全性はブラウザでは検証しません）。
 
 同梱アセットのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。同梱の中国語音声は学習データが CC0 の `chaowen` のみで、ライセンス不明のモデルは含まれていません。
 
@@ -49,6 +49,9 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - OCR（`中` の認識）、Piper `chaowen` の WAV 生成、ブラウザ音声フォールバック
 - 再生中のボタン切替、準備中の停止、上流準拠のピンイン音素化
   （零声母 `Ø`、軽声 `0`→`5`、ü の `v` 化、グループ末尾のみ pad）
+- 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`）と上流 RBNF 6,142 ケース・上位ギャップ集中ケースとの一致
+- 年の桁読み（`2026年9月` → `二〇二六年九月`、`2026年2027年` → `二〇二六年二〇二七年`、5 桁以上は一般数値）
+- CDN フォールバック時の SRI 属性付与、不正ハッシュの拒否、二次アセット欠落時の fail-closed、二次アセットのローカルパス強制
 - 外部通信を遮断した状態での OCR / Piper 動作
 - axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
 - Firefox の OCR / Piper、WebKit の OCR / モデル推論
@@ -73,3 +76,6 @@ sarutahico_logo.png          ヘッダーロゴ
 - WebKit（Safari 系エンジン）では OCR とモデル推論まで確認できましたが、検証用ヘッドレスビルドに音声出力機能が無いため再生は未検証です。実機 Safari も未検証です。
 - 初回のモデル読み込みには数秒〜十数秒かかります（同梱アセットがある場合はダウンロードは発生しません）。
 - 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値と、上流 `piper1-gpl` の音素/ID 系列との一致までを検証しています。
+- `vendor/piper/.../zh_CN-chaowen-medium.onnx` は約 60 MB で、GitHub の推奨上限 50 MB を超えるため警告が表示されます。100 MB の硬制限内で push 済みですが、Git LFS 移行は外部ストレージ設定を伴うため未実施です。
+- `backups/` は過去状態のスナップショットです。旧ライセンス不明モデルや旧 phonemizer への参照を含みますが、実行時には読み込まれません（[backups/README.md](backups/README.md) 参照）。
+- 上流 RBNF は非常に大きな整数（約 20 桁以上）を扱えないため、その範囲の一致は検証対象外です。アプリ側は文字列ベースの桁グループ処理により丸めは発生しません。

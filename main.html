@@ -223,6 +223,34 @@
     const PINYIN_PRO_BASE = 'https://cdn.jsdelivr.net/npm/pinyin-pro@3.29.5/dist/';
     const PIPER_VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
     const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    // Subresource Integrity for the CDN fallback scripts. Hashes are of the
+    // exact files mirrored in vendor/ and verified by tools/fetch-assets.py.
+    const CDN_SRI = {
+      [TESSERACT_CDN]: 'sha256-qOKZGNCYsrBuEBK9rv+0rsBEXF1WVHCQI+C9H0QqgOg=',
+      [ORT_BASE + 'ort.min.js']: 'sha256-kk5Pzf32mszP89Ak1uGtP0HKhY0n/E3Vn8SSfdkz59s=',
+      [PINYIN_PRO_BASE + 'index.js']: 'sha256-pIgXNHB2is4HTDxP/7uIDoNSOzqpWYqBR8kw5/LVx9w='
+    };
+    // Tesseract.js / ORT load these files themselves, so SRI cannot cover them.
+    // When the main script falls back to a CDN they must still exist locally;
+    // otherwise we fail closed instead of executing unverified remote code.
+    const TESSERACT_LOCAL_ASSETS = [
+      'vendor/tesseract/worker.min.js',
+      'vendor/tesseract/core/tesseract-core.wasm.js',
+      'vendor/tesseract/core/tesseract-core.wasm',
+      'vendor/tesseract/core/tesseract-core-simd.wasm.js',
+      'vendor/tesseract/core/tesseract-core-simd.wasm',
+      'vendor/tesseract/core/tesseract-core-lstm.wasm.js',
+      'vendor/tesseract/core/tesseract-core-lstm.wasm',
+      'vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
+      'vendor/tesseract/core/tesseract-core-simd-lstm.wasm',
+      'vendor/tesseract/lang/chi_sim.traineddata.gz'
+    ];
+    const ORT_LOCAL_ASSETS = [
+      'vendor/ort/ort-wasm-simd-threaded.mjs',
+      'vendor/ort/ort-wasm-simd-threaded.wasm',
+      'vendor/ort/ort-wasm-simd-threaded.jsep.mjs',
+      'vendor/ort/ort-wasm-simd-threaded.jsep.wasm'
+    ];
     // Bumped from v1 when replacing huayan: v1 held the removed 63 MB model.
     const PIPER_CACHE_NAME = 'sarutahico-piper-v2';
     // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
@@ -232,8 +260,106 @@
     const PINYIN_INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
     // Matches piper1-gpl phonemize_chinese.py::GROUP_END_PHONEMES.
     const PIPER_GROUP_END = new Set(['1', '2', '3', '4', '5', '。', '？', '！', '.', '?', '!', '—', '…', '、', '，', '：', '；', ',', ':', ';', ' ']);
-    const PINYIN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    // Years are read digit-by-digit and use 〇, never 零.
+    const PINYIN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
     const DEFAULT_VOICE = 'piper:medium';
+
+    // ---- Chinese number expansion (matches unicode_rbnf 2.4.0 "zh") ----
+    const CHINESE_GROUP_UNITS = ['', '万', '亿', '兆', '京'];
+
+    function spellUnderTenThousand(value, leadingOne = false) {
+      const digits = PINYIN_DIGITS;
+      let out = '';
+      const thousands = Math.floor(value / 1000);
+      if (thousands) out += digits[thousands] + '千';
+      let rest = value % 1000;
+      const hundreds = Math.floor(rest / 100);
+      if (hundreds) {
+        out += digits[hundreds] + '百';
+        rest %= 100;
+        if (rest === 0) return out;
+        if (rest < 10) out += '〇';
+      } else if (thousands && rest > 0) {
+        out += '〇';
+      }
+      const tens = Math.floor(rest / 10);
+      if (tens) {
+        // Standalone 10-19 is 十/十一, but after a higher unit it is 一十/一十一.
+        if (tens !== 1 || out || leadingOne) out += digits[tens];
+        out += '十';
+      }
+      const ones = rest % 10;
+      if (ones) out += digits[ones];
+      return out || '〇';
+    }
+
+    // Group the digit string instead of using Number so large values are not
+    // rounded before they are spelled out.
+    function spellChineseInteger(value) {
+      const digits = String(value).replace(/^0+(?=\d)/, '');
+      if (digits === '0') return '〇';
+      const groups = [];
+      for (let end = digits.length; end > 0; end -= 4) {
+        groups.push(Number(digits.slice(Math.max(0, end - 4), end)));
+      }
+      let out = '';
+      let previousIndex = groups.length;
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const group = groups[i];
+        if (!group) continue;
+        // RBNF inserts 〇 before a small final group and after skipped groups.
+        // A single 〇 covers both cases at once.
+        // RBNF only inserts the gap 〇 immediately before the lowest group.
+        const hasGap = i === 0 && previousIndex - i > 1;
+        const smallFinal = i === 0 && Boolean(out) && group < 1000;
+        if (out && (hasGap || smallFinal)) out += '〇';
+        const fullTens = i === 0 && Boolean(out) && group >= 10 && group < 20;
+        out += spellUnderTenThousand(group, fullTens) + (CHINESE_GROUP_UNITS[i] || '');
+        previousIndex = i;
+      }
+      return out || '〇';
+    }
+
+    function spellChineseNumber(raw) {
+      const source = String(raw).trim();
+      const negative = /^-\s*/.test(source);
+      const unsigned = source.replace(/^[-+]\s*/, '');
+      const parts = unsigned.split('.');
+      const integerDigits = parts[0] || '0';
+      const integerText = spellChineseInteger(integerDigits);
+      const fraction = parts.length > 1 ? parts[1] : '';
+      const fractionHasDigits = Boolean(fraction) && !/^0+$/.test(fraction);
+      if (negative) {
+        // RBNF drops negative fractions and renders -0 as 〇.
+        if (/^0+$/.test(integerDigits)) return fractionHasDigits ? '负' : '〇';
+        return '负' + integerText;
+      }
+      if (fractionHasDigits) {
+        return integerText + '点' + Array.from(fraction, d => PINYIN_DIGITS[Number(d)]).join('');
+      }
+      return integerText;
+    }
+
+    function expandChineseNumbers(text) {
+      let source = String(text).replace(/[“”"]/g, '');
+      // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
+      source = source.replace(/([〇零一二三四五六七八九]+)\s*年/g, (_, year) => {
+        return year.replace(/零/g, '〇') + '年';
+      });
+      source = source.replace(/(\d{4})\s*年/g, (match, year, offset) => {
+        if (offset > 0 && /\d/.test(source[offset - 1])) return match;
+        return year.split('').map(d => PINYIN_DIGITS[Number(d)]).join('') + '年';
+      });
+      // Temperatures and percentages follow piper1-gpl's number frontend.
+      source = source.replace(/([-−]?)(\d+(?:\.\d+)?)\s*(?:°\s*C|℃)/g, (_, sign, num) => {
+        return (sign ? '零下' : '') + spellChineseNumber(num) + '度';
+      });
+      source = source.replace(/(-?\d+(?:\.\d+)?|[零〇一二三四五六七八九十百千万亿两点]+)\s*(?:%|％)/g, (_, num) => {
+        const words = /^-?\d/.test(num) ? spellChineseNumber(num) : num;
+        return '百分之' + words;
+      });
+      return source.replace(/-?\d+(?:\.\d+)?/g, match => spellChineseNumber(match));
+    }
 
     // ---- 内蔵辞書（オフラインモード用） ----
     const KANJI_DICT = {
@@ -862,13 +988,24 @@
     async function resolveAsset(localPath, remoteUrl) {
       try {
         const res = await fetch(localPath, { method: 'HEAD', cache: 'no-store' });
-        if (res.ok) return { url: localPath, local: true };
+        if (res.ok) return { url: localPath, local: true, integrity: '' };
       } catch (e) { /* local assets are optional */ }
-      return { url: remoteUrl, local: false };
+      return { url: remoteUrl, local: false, integrity: CDN_SRI[remoteUrl] || '' };
+    }
+
+    async function requireLocalAssets(paths) {
+      const results = await Promise.all(paths.map(async (path) => {
+        try {
+          return (await fetch(path, { method: 'HEAD', cache: 'no-store' })).ok;
+        } catch (e) {
+          return false;
+        }
+      }));
+      return results.every(Boolean);
     }
 
     // ---- 動的スクリプト読み込み ----
-    function loadScript(src) {
+    function loadScript(src, integrity = '') {
       return new Promise((resolve, reject) => {
         if (document.querySelector(`script[src="${src}"]`)) {
           resolve();
@@ -876,6 +1013,10 @@
         }
         const script = document.createElement('script');
         script.src = src;
+        if (integrity) {
+          script.integrity = integrity;
+          script.crossOrigin = 'anonymous';
+        }
         script.onload = resolve;
         script.onerror = () => reject(new Error('Failed to load: ' + src));
         document.head.appendChild(script);
@@ -1072,12 +1213,17 @@
         showProgress(true);
         setProgress(10);
         const tesseractAsset = await resolveAsset('vendor/tesseract/tesseract.min.js', TESSERACT_CDN);
-        if (!window.Tesseract) await loadScript(tesseractAsset.url);
-        const localOptions = tesseractAsset.local ? {
+        if (!(await requireLocalAssets(TESSERACT_LOCAL_ASSETS))) {
+          throw new Error('OCRの二次アセットがローカルにありません。tools/fetch-assets.py を実行してください。');
+        }
+        if (!window.Tesseract) await loadScript(tesseractAsset.url, tesseractAsset.integrity);
+        // The CDN main script has SRI, but Tesseract fetches these files itself.
+        // Always point them at the verified local vendor copies.
+        const localOptions = {
           workerPath: new URL('vendor/tesseract/worker.min.js', location.href).href,
           corePath: new URL('vendor/tesseract/core/', location.href).href,
           langPath: new URL('vendor/tesseract/lang/', location.href).href
-        } : {};
+        };
         tesseractOptions = Object.assign({
           logger: m => {
             if (m.status === 'recognizing text') {
@@ -1307,13 +1453,18 @@
       if (window.ort && window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return;
       setTtsStatus('ニューラル音声のエンジンを読み込み中...');
       const ortAsset = await resolveAsset('vendor/ort/ort.min.js', ORT_BASE + 'ort.min.js');
-      await loadScript(ortAsset.url);
+      if (!(await requireLocalAssets(ORT_LOCAL_ASSETS))) {
+        throw new Error('PiperのWASMアセットがローカルにありません。tools/fetch-assets.py を実行してください。');
+      }
+      await loadScript(ortAsset.url, ortAsset.integrity);
       const pinyinAsset = await resolveAsset('vendor/pinyin/pinyin-pro.js', PINYIN_PRO_BASE + 'index.js');
-      await loadScript(pinyinAsset.url);
+      await loadScript(pinyinAsset.url, pinyinAsset.integrity);
       if (!window.ort || !window.pinyinPro || typeof window.pinyinPro.pinyin !== 'function') {
         throw new Error('Piper runtime load failed');
       }
-      window.ort.env.wasm.wasmPaths = ortAsset.local ? new URL('vendor/ort/', location.href).href : ORT_BASE;
+      // ORT loads .mjs/.wasm internally; use the verified local copies even
+      // when the main script came from the SRI-protected CDN.
+      window.ort.env.wasm.wasmPaths = new URL('vendor/ort/', location.href).href;
       window.ort.env.wasm.numThreads = 1;
       window.ort.env.wasm.proxy = false;
     }
@@ -1425,9 +1576,9 @@
         const idMap = config.phoneme_id_map || {};
         const has = (symbol) => Array.isArray(idMap[symbol]);
         const phonemize = (text) => {
-          // Bare digits are not in the phoneme map; spell them out before pinyin
-          // conversion, matching piper1-gpl's number expansion.
-          const source = String(text).replace(/\d/g, d => PINYIN_DIGITS[Number(d)]);
+          // Digits are not in the phoneme map. Expand them before pinyin
+          // conversion; years are read digit-by-digit with 〇.
+          const source = expandChineseNumbers(text);
           const syllables = window.pinyinPro.pinyin(source, {
             toneType: 'num', type: 'array', nonZh: 'consecutive'
           }).map(item => String(item));

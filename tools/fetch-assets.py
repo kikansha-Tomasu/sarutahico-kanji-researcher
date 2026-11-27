@@ -10,8 +10,10 @@ the manifest URLs, sizes and hashes.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
+import re
 import sys
 import urllib.request
 
@@ -82,6 +84,57 @@ def sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def check_cdn_sri() -> list[str]:
+    """Ensure every SRI hash in main.html matches a vendored SHA-256."""
+    html_path = os.path.join(ROOT, "main.html")
+    if not os.path.exists(html_path):
+        return [f"main.html not found: {html_path}"]
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    constants = dict(re.findall(r"const (ORT_BASE|PINYIN_PRO_BASE|TESSERACT_CDN) = '([^']+)';", html))
+
+    def resolve(expr: str) -> str:
+        expr = expr.strip()
+        if expr in constants:
+            return constants[expr]
+        match = re.fullmatch(r"(\w+)\s*\+\s*'([^']+)'", expr)
+        if match and match.group(1) in constants:
+            return constants[match.group(1)] + match.group(2)
+        return expr
+
+    declared = {
+        resolve(expr): digest
+        for expr, digest in re.findall(r"\[([^\]]+)\]\s*:\s*'sha256-([^']+)'", html)
+    }
+    pairs = [
+        (ORT + "ort.min.js", "ort/ort.min.js"),
+        (PINYIN + "dist/index.js", "pinyin/pinyin-pro.js"),
+        (TESS + "tesseract.min.js", "tesseract/tesseract.min.js"),
+    ]
+    digests = {
+        rel: base64.b64encode(bytes.fromhex(SHA256[rel])).decode("ascii")
+        for _, rel in pairs
+    }
+    failures = []
+    for url, rel in pairs:
+        actual = declared.get(url)
+        if actual != digests[rel]:
+            failures.append(f"CDN_SRI mismatch for {rel}: {actual} != {digests[rel]}")
+    expected_urls = {url for url, _ in pairs}
+    extra_urls = set(declared) - expected_urls
+    missing_urls = expected_urls - set(declared)
+    if extra_urls or missing_urls:
+        failures.append(f"CDN_SRI keys mismatch: extra={sorted(extra_urls)}, missing={sorted(missing_urls)}")
+    literals = set(re.findall(r"sha256-([^']+)'", html))
+    expected_literals = set(digests.values())
+    if literals != expected_literals:
+        failures.append(
+            f"sha256 literals mismatch: extra={sorted(literals - expected_literals)}, "
+            f"missing={sorted(expected_literals - literals)}"
+        )
+    return failures
+
+
 def main() -> int:
     failures = []
     for url, rel, expected in MANIFEST:
@@ -114,10 +167,14 @@ def main() -> int:
                 os.remove(tmp)
             failures.append((rel, str(exc)))
             print(f"FAILED   {rel}: {exc}", file=sys.stderr)
+    sri_failures = check_cdn_sri()
+    for failure in sri_failures:
+        print(f"FAILED   {failure}", file=sys.stderr)
+    failures.extend(sri_failures)
     if failures:
-        print(f"\n{len(failures)} asset(s) failed to download.", file=sys.stderr)
+        print(f"\n{len(failures)} asset check(s) failed (see FAILED lines above).", file=sys.stderr)
         return 1
-    print("\nAll assets are available locally in vendor/.")
+    print("\nAll assets are available locally in vendor/ and CDN_SRI matches.")
     return 0
 
 
