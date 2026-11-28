@@ -358,19 +358,44 @@
       return integerText;
     }
 
-    // Scan numeric tokens in one pass. Regex \d+ backtracking is quadratic on
-    // hostile long digit runs, while this stays linear and still expands very
-    // large numbers via spellChineseInteger's digit-reading fallback.
+    // Numeric years, temperatures and percentages are resolved here rather
+    // than with /\d+(?:\.\d+)?\s*unit/ regexes: those backtrack across the
+    // whole digit run whenever the unit is absent, which is quadratic.
+    function matchNumericUnit(text, index) {
+      let j = index;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j >= text.length) return null;
+      if (text[j] === '年') return { type: 'year', end: j + 1 };
+      if (text[j] === '%' || text[j] === '％') return { type: 'percent', end: j + 1 };
+      if (text[j] === '℃') return { type: 'temp', end: j + 1 };
+      if (text[j] === '°') {
+        let k = j + 1;
+        while (k < text.length && /\s/.test(text[k])) k++;
+        if (k < text.length && text[k] === 'C') return { type: 'temp', end: k + 1 };
+      }
+      return null;
+    }
+
     function replaceNumericRuns(text) {
       let out = '';
       let i = 0;
       while (i < text.length) {
+        if (!/\d/.test(text[i]) && text[i] !== '-' && text[i] !== '−') {
+          const plainStart = i;
+          while (i < text.length && !/\d/.test(text[i]) && text[i] !== '-' && text[i] !== '−') i++;
+          out += text.slice(plainStart, i);
+          continue;
+        }
         const start = i;
-        const signChar = text[i];
-        const sign = (signChar === '-' || signChar === '−') ? '-' : '';
-        if (sign) i += 1;
+        // Preserve earlier signs verbatim and let the last one drive the
+        // negative reading: --1% -> -百分之负一 (same as the old regexes).
+        while (i < text.length && (text[i] === '-' || text[i] === '−')) i++;
+        const signRun = text.slice(start, i);
+        const sign = signRun ? '-' : '';
+        const prefixSigns = signRun.slice(0, -1);
+        const multipleSigns = signRun.length > 1;
         if (i >= text.length || !/\d/.test(text[i])) {
-          out += text.slice(start, i);
+          out += signRun;
           if (i < text.length) out += text[i++];
           continue;
         }
@@ -385,7 +410,68 @@
           if (fractionDigits) fraction = '.' + fractionDigits;
           else i = dot;
         }
-        out += spellChineseNumber(sign + integer + fraction);
+        const unit = matchNumericUnit(text, i);
+        let spelled;
+        if (unit && unit.type === 'year' && !fraction && integer.length === 4) {
+          spelled = signRun + Array.from(integer, d => PINYIN_DIGITS[Number(d)]).join('') + '年';
+        } else {
+          if (unit && unit.type === 'temp') {
+            // The sign is expressed by 零下, so do not let spellChineseNumber
+            // emit 负 as well.
+            spelled = prefixSigns + (sign ? '零下' : '') + spellChineseNumber(integer + fraction) + '度';
+          } else if (unit && unit.type === 'percent') {
+            spelled = prefixSigns + '百分之' + spellChineseNumber(sign + integer + fraction);
+          } else {
+            // Old behavior for bare numbers: repeated signs stay verbatim and
+            // only a single sign contributes the negative reading.
+            spelled = (multipleSigns ? signRun : '') +
+              spellChineseNumber((multipleSigns ? '' : sign) + integer + fraction);
+            if (unit && unit.type === 'year') spelled += '年';
+          }
+        }
+        out += spelled;
+        if (unit) i = unit.end;
+      }
+      return out;
+    }
+
+    // Chinese-run year/percent units are scanned once. A regex like
+    // /[〇零...]+年/g backtracks the whole run at every start position when
+    // the unit is absent, which is quadratic on long text.
+    function expandChineseUnitRuns(source) {
+      const unitChar = /[〇零一二三四五六七八九十百千万亿两点]/;
+      const yearChar = /[〇零一二三四五六七八九]/;
+      let out = '';
+      let i = 0;
+      while (i < source.length) {
+        if (!unitChar.test(source[i])) {
+          const plainStart = i;
+          while (i < source.length && !unitChar.test(source[i])) i++;
+          out += source.slice(plainStart, i);
+          continue;
+        }
+        const start = i;
+        while (i < source.length && unitChar.test(source[i])) i++;
+        const run = source.slice(start, i);
+        let j = i;
+        while (j < source.length && /\s/.test(source[j])) j++;
+        if (j < source.length && source[j] === '年') {
+          // The old regex matched the trailing 年-eligible suffix of a run,
+          // e.g. 十三 -> 十三年 and 一百零一 -> 一百〇一年.
+          let suffixStart = run.length;
+          while (suffixStart > 0 && yearChar.test(run[suffixStart - 1])) suffixStart--;
+          if (suffixStart < run.length) {
+            out += run.slice(0, suffixStart) + run.slice(suffixStart).replace(/零/g, '〇') + '年';
+            i = j + 1;
+          } else {
+            out += run;
+          }
+        } else if (j < source.length && (source[j] === '%' || source[j] === '％')) {
+          out += '百分之' + run;
+          i = j + 1;
+        } else {
+          out += run;
+        }
       }
       return out;
     }
@@ -395,21 +481,9 @@
       // Thousands separators are punctuation, not digits: "1,000" is 一千.
       source = source.replace(/(\d)[,，](?=\d{3}(?!\d))/g, '$1');
       // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
-      source = source.replace(/([〇零一二三四五六七八九]{1,64})\s*年/g, (_, year) => {
-        return year.replace(/零/g, '〇') + '年';
-      });
-      source = source.replace(/(\d{4})\s*年/g, (match, year, offset) => {
-        if (offset > 0 && /\d/.test(source[offset - 1])) return match;
-        return year.split('').map(d => PINYIN_DIGITS[Number(d)]).join('') + '年';
-      });
-      // Temperatures and percentages follow piper1-gpl's number frontend.
-      source = source.replace(/([-−]?)(\d{1,64}(?:\.\d{1,32})?(?!\d))\s*(?:°\s*C|℃)/g, (_, sign, num) => {
-        return (sign ? '零下' : '') + spellChineseNumber(num) + '度';
-      });
-      source = source.replace(/(-?\d{1,64}(?:\.\d{1,32})?(?!\d)|[零〇一二三四五六七八九十百千万亿两点]{1,64})\s*(?:%|％)/g, (_, num) => {
-        const words = /^-?\d/.test(num) ? spellChineseNumber(num) : num;
-        return '百分之' + words;
-      });
+      // Numeric units are handled by replaceNumericRuns() in the same pass as
+      // bare numbers, so no regex can partially match a 65+ digit run.
+      source = expandChineseUnitRuns(source);
       return replaceNumericRuns(source);
     }
 
