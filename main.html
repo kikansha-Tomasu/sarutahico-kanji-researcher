@@ -16,7 +16,9 @@
       --font-sans: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
     }
     *{box-sizing:border-box}
+    .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
     html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-sans);color:#222}
+    .app,.left,.right,header{min-width:0}
     .app{max-width:1100px;margin:28px auto;padding:22px;border-radius:14px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,0.08);display:grid;grid-template-columns:420px 1fr;gap:22px}
 
     header{grid-column:1/-1;display:flex;align-items:center;gap:14px}
@@ -34,6 +36,7 @@
     .btn:disabled { background: #ccc; cursor: not-allowed; opacity:0.6; }
     .primary{background:var(--red);color:#fff}
     .file-btn{background:var(--green);color:#fff}
+    .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
     .tool-btn{background:var(--ivory);border:2px solid #eee;color:#333}
     .tool-btn.selected{box-shadow:inset 0 0 0 2px var(--purple); background:#f0ecf5;}
     .dim{filter:brightness(0.85)}
@@ -89,14 +92,20 @@
     @media (max-width:980px){
       .app{grid-template-columns:1fr;max-width:720px}
     }
+    @media (max-width:640px){
+      .app{max-width:100%;padding:12px;gap:12px}
+      header h1{font-size:18px}
+      canvas#drawCanvas{width:100%;max-width:360px;height:auto;aspect-ratio:1}
+      .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
+    }
 
     footer{grid-column:1/-1;text-align:right;color:#666;font-size:12px}
   </style>
 </head>
 <body>
   <div class="app" role="main" aria-label="SARUTAHICO 漢字解析アプリ">
-    <header>
-      <img class="logo" src="sarutahico_logo.png" alt="SARUTAHICO ロゴ" onerror="this.style.display='none'">
+    <header role="presentation">
+      <img class="logo" src="sarutahico_logo.png" alt="SARUTAHICO ロゴ">
       <div>
         <h1>SARUTAHICO <span class="dictionary-badge" id="modeBadge">API不要</span><span class="ocr-badge" id="ocrBadge">Tesseract.js</span></h1>
         <div style="font-size:12px;color:#555">手書き・画像から漢字を読み取り、意味・ピンイン・例文を表示</div>
@@ -121,26 +130,26 @@
       </div>
 
       <div class="canvas-wrap panel">
-        <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス"></canvas>
-        <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+        <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス" tabindex="0" role="application" aria-label="手書きキャンバス。キーボードのみの場合はファイル選択または手動入力をお使いください。"></canvas>
+        <div class="progress-bar" id="progressBar" role="progressbar" aria-label="OCRの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="progressFill"></div></div>
         <div class="tools">
           <label class="btn file-btn" style="display:inline-flex;align-items:center;gap:8px;">
             ファイルを選択
-            <input id="fileInput" type="file" accept="image/*" style="display:none">
+            <input id="fileInput" class="visually-hidden" type="file" accept="image/*">
           </label>
           <button id="analyzeBtn" class="btn primary">漢字分析</button>
           <button id="undoBtn" class="btn tool-btn" title="Ctrl+Z">元に戻す</button>
         </div>
         <div class="tools" style="margin-top:6px;">
-          <button id="penBtn" class="btn tool-btn selected">ペン</button>
-          <button id="eraserBtn" class="btn tool-btn dim">消しゴム</button>
+          <button id="penBtn" class="btn tool-btn selected" aria-pressed="true">ペン</button>
+          <button id="eraserBtn" class="btn tool-btn dim" aria-pressed="false">消しゴム</button>
           <button id="clearBtn" class="btn tool-btn">すべて消去</button>
           <div class="color-picker" style="margin-left:8px;">
             <span style="font-size:12px;color:#555;">色:</span>
-            <div class="color-dot selected" data-color="#000" style="background:#000;" title="黒" role="button" tabindex="0" aria-label="黒"></div>
-            <div class="color-dot" data-color="#ED2939" style="background:#ED2939;" title="赤" role="button" tabindex="0" aria-label="赤"></div>
-            <div class="color-dot" data-color="#0066CC" style="background:#0066CC;" title="青" role="button" tabindex="0" aria-label="青"></div>
-            <div class="color-dot" data-color="#00A86B" style="background:#00A86B;" title="緑" role="button" tabindex="0" aria-label="緑"></div>
+            <div class="color-dot selected" data-color="#000" style="background:#000;" title="黒" role="button" tabindex="0" aria-label="黒" aria-pressed="true"></div>
+            <div class="color-dot" data-color="#ED2939" style="background:#ED2939;" title="赤" role="button" tabindex="0" aria-label="赤" aria-pressed="false"></div>
+            <div class="color-dot" data-color="#0066CC" style="background:#0066CC;" title="青" role="button" tabindex="0" aria-label="青" aria-pressed="false"></div>
+            <div class="color-dot" data-color="#00A86B" style="background:#00A86B;" title="緑" role="button" tabindex="0" aria-label="緑" aria-pressed="false"></div>
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
             <span style="font-size:12px;color:#555;">太さ:</span>
@@ -169,7 +178,7 @@
         <div class="field"><b>例文</b><div id="example">--</div></div>
 
         <div class="field">
-          <b>手動入力（API不要）</b>
+          <label for="manualKanjiInput" style="display:block;margin-bottom:6px;font-weight:bold;color:#555;">手動入力（API不要）</label>
           <div class="manual-input-row">
             <input type="text" id="manualKanjiInput" placeholder="漢字を1文字入力" maxlength="1" style="font-size:1.5em;text-align:center;">
             <button id="lookupBtn" class="btn primary" style="padding:8px 16px;">辞書検索</button>
@@ -210,7 +219,7 @@
       </div>
     </div>
 
-    <footer>© SARUTAHICO</footer>
+    <footer role="presentation">© SARUTAHICO</footer>
   </div>
   <div id="messageBox" class="message-box" role="alert" aria-live="assertive"></div>
 
@@ -255,6 +264,7 @@
     // v1: removed huayan model. v2: unverified Hugging Face downloads.
     // v3: cache keys include SRI; only verified blobs are stored.
     const PIPER_CACHE_NAME = 'sarutahico-piper-v3';
+    const PIPER_LOCAL_CACHE_VERSION = '20261128';
     // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
     const PIPER_VOICES = {
       'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
@@ -895,6 +905,8 @@
     const pitchSlider = document.getElementById('pitchSlider');
     const pitchLabel = document.getElementById('pitchLabel');
     const ttsStatus = document.getElementById('ttsStatus');
+    const logoImg = document.querySelector('header img.logo');
+    if (logoImg) logoImg.addEventListener('error', () => { logoImg.style.display = 'none'; });
 
     // ---- 状態 ----
     let drawing = false;
@@ -927,6 +939,17 @@
     }
 
     // ---- モード切り替え ----
+    function clearResult() {
+      stopSpeaking();
+      detectedKanjiEl.textContent = '--';
+      meaningEl.textContent = '--';
+      pinyinEl.textContent = '--';
+      exampleEl.textContent = '--';
+      currentKanjiText = '';
+      currentExampleText = '';
+      playPinyinBtn.disabled = true;
+      playExampleBtn.disabled = true;
+    }
     function setMode(apiMode) {
       useApiMode = apiMode;
       offlineModeBtn.classList.toggle('active', !apiMode);
@@ -939,6 +962,7 @@
       modeBadge.style.background = apiMode ? 'var(--purple)' : 'var(--green)';
       ocrBadge.textContent = apiMode ? 'Qwen-VL' : 'Tesseract.js';
       ocrBadge.style.background = apiMode ? 'var(--purple)' : 'var(--gold)';
+      clearResult();
     }
     offlineModeBtn.addEventListener('click', () => setMode(false));
     apiModeBtn.addEventListener('click', () => setMode(true));
@@ -951,14 +975,17 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
+      undoBtn.disabled = undoStack.length === 0;
     }
     initCanvas(false);
+    undoBtn.disabled = true;
 
     function saveUndoState() {
       try {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         undoStack.push(imageData);
         if (undoStack.length > MAX_UNDO) undoStack.shift();
+        undoBtn.disabled = false;
       } catch (e) {
         console.warn('Undo state save failed:', e);
       }
@@ -967,10 +994,12 @@
     function undo() {
       if (undoStack.length === 0) {
         showMessage('元に戻す操作がありません。');
+        undoBtn.disabled = true;
         return;
       }
       const imageData = undoStack.pop();
       ctx.putImageData(imageData, 0, 0);
+      undoBtn.disabled = undoStack.length === 0;
     }
 
     // ---- 描画ツール ----
@@ -980,6 +1009,8 @@
       eraserBtn.classList.toggle('selected', t === 'eraser');
       penBtn.classList.toggle('dim', t !== 'pen');
       eraserBtn.classList.toggle('dim', t === 'pen');
+      penBtn.setAttribute('aria-pressed', String(t === 'pen'));
+      eraserBtn.setAttribute('aria-pressed', String(t === 'eraser'));
       canvas.style.cursor = t === 'eraser' ? 'cell' : 'crosshair';
     }
 
@@ -1029,8 +1060,12 @@
     undoBtn.addEventListener('click', undo);
 
     function selectColor(dot) {
-      document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('selected'));
+      document.querySelectorAll('.color-dot').forEach(d => {
+        d.classList.remove('selected');
+        d.setAttribute('aria-pressed', 'false');
+      });
       dot.classList.add('selected');
+      dot.setAttribute('aria-pressed', 'true');
       penColor = dot.dataset.color;
       if (tool !== 'pen') setTool('pen');
     }
@@ -1075,6 +1110,7 @@
     fileInput.addEventListener('change', (ev) => {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
+      clearResult();
       if (!file.type.startsWith('image/')) {
         showMessage('画像ファイルを選択してください。');
         return;
@@ -1102,9 +1138,12 @@
       messageBox.textContent = text;
       messageBox.style.display = 'block';
       clearTimeout(messageBox._timer);
-      messageBox._timer = setTimeout(() => {
-        messageBox.style.display = 'none';
-      }, duration);
+      messageBox._timer = null;
+      if (duration > 0) {
+        messageBox._timer = setTimeout(() => {
+          messageBox.style.display = 'none';
+        }, duration);
+      }
     }
 
     // ---- プログレスバー ----
@@ -1123,6 +1162,7 @@
     }
     function setProgress(pct) {
       progressFill.style.width = pct + '%';
+      progressBar.setAttribute('aria-valuenow', String(pct));
     }
 
     // ---- ローカル同梱アセットを優先し、無ければ CDN を使う ----
@@ -1152,22 +1192,38 @@
     }
 
     // ---- 動的スクリプト読み込み ----
+    // A failed <script> element must not poison later retries, and concurrent
+    // callers should join one real in-flight load instead of any DOM node.
+    const pendingScripts = new Map();
     function loadScript(src, integrity = '') {
-      return new Promise((resolve, reject) => {
-        if (document.querySelector(`script[src="${src}"]`)) {
-          resolve();
-          return;
-        }
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing && existing.dataset.loaded === 'true') {
+        return Promise.resolve();
+      }
+      if (pendingScripts.has(src)) {
+        return pendingScripts.get(src);
+      }
+      const promise = new Promise((resolve, reject) => {
         const script = document.createElement('script');
         script.src = src;
         if (integrity) {
           script.integrity = integrity;
           script.crossOrigin = 'anonymous';
         }
-        script.onload = resolve;
-        script.onerror = () => reject(new Error('Failed to load: ' + src));
+        script.onload = () => {
+          script.dataset.loaded = 'true';
+          pendingScripts.delete(src);
+          resolve();
+        };
+        script.onerror = () => {
+          script.remove();
+          pendingScripts.delete(src);
+          reject(new Error('Failed to load: ' + src));
+        };
         document.head.appendChild(script);
       });
+      pendingScripts.set(src, promise);
+      return promise;
     }
 
     // ---- 空キャンバスチェック ----
@@ -1251,7 +1307,7 @@
           kanji: kanji,
           meaning: '（辞書に未登録）',
           pinyin: '—',
-          example: '（辞書に未登録の漢字です）'
+          example: '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）'
         };
       }
       return {
@@ -1264,7 +1320,15 @@
 
     // ---- API呼び出し ----
     function getApiUrl() {
-      return apiUrlInput.value.trim().replace(/\/$/, '');
+      const raw = apiUrlInput.value.trim().replace(/\/$/, '');
+      if (!raw) return '';
+      try {
+        const url = new URL(raw);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        return url.toString().replace(/\/$/, '');
+      } catch (e) {
+        return '';
+      }
     }
 
     async function extractKanjiFromImage(imageDataUrl) {
@@ -1294,8 +1358,8 @@
           body: JSON.stringify(body)
         });
         if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(`API Error ${res.status}: ${errorText}`);
+          await res.text();
+          throw new Error(`API Error ${res.status}`);
         }
         const json = await res.json();
         const text = (json.choices?.[0]?.message?.content ?? '').trim();
@@ -1332,7 +1396,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: GPT_OSS_MODEL, messages: [{ role: 'user', content: prompt }] })
         });
-        if (!res.ok) throw new Error(`API error: ${res.status} ${await res.text()}`);
+        if (!res.ok) { await res.text(); throw new Error(`API error: ${res.status}`); }
         const data = await res.json();
         const content = (data.choices?.[0]?.message?.content ?? '').trim();
         let jsonStr = content;
@@ -1385,8 +1449,9 @@
         if (manageProgress) showProgress(false);
         return true;
       } catch (err) {
-        console.error('Tesseract init error:', err);
+        console.error('Tesseract init error:', err && err.message ? err.message : err);
         if (manageProgress) showProgress(false);
+        showMessage('OCRエンジンの読み込みに失敗しました。' + (err && err.message ? ' ' + err.message : ''), 0);
         return false;
       }
     }
@@ -1496,6 +1561,9 @@
     function updateTtsControls() {
       const isPiper = voiceSelect.value.startsWith('piper:');
       pitchSlider.disabled = isPiper;
+      pitchSlider.title = isPiper ? 'Piperでは音程調整はできません' : '音程';
+      if (isPiper) pitchLabel.textContent = '—';
+      else pitchLabel.textContent = ttsPitch.toFixed(1);
       if (activeButton) return;
       if (isPiper) {
         const voice = PIPER_VOICES[voiceSelect.value];
@@ -1649,7 +1717,7 @@
       // Only blobs that passed verification are ever written under such a key.
       const cacheKey = integrity
         ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}`
-        : url;
+        : `${url}?sarutahico_local=${PIPER_LOCAL_CACHE_VERSION}`;
       if (cache) {
         try {
           const hit = await cache.match(cacheKey);
@@ -1744,8 +1812,15 @@
 
       // A preparation promise can be joined by a new request after a stop.
       // Only show its progress while this voice is still the active request.
+      let lastPiperProgress = -1;
       const setPrepStatus = (text) => {
-        if (activeButton && voiceSelect.value === voiceId) setTtsStatus(text);
+        if (!(activeButton && voiceSelect.value === voiceId)) return;
+        const match = text.match(/(\d+)%/);
+        if (match) {
+          const pct = Number(match[1]);
+          if (pct !== 0 && pct !== 100 && pct % 10 !== 0) return;
+        }
+        setTtsStatus(text);
       };
       const promise = (async () => {
         await loadPiperRuntime();
@@ -1782,7 +1857,7 @@
         const phonemize = (text) => {
           // Digits are not in the phoneme map. Expand them before pinyin
           // conversion; years are read digit-by-digit with 〇.
-          const source = expandChineseNumbers(text);
+          const source = expandChineseNumbers(text).replace(/\s+/g, ' ');
           const syllables = window.pinyinPro.pinyin(source, {
             toneType: 'num', type: 'array', nonZh: 'consecutive'
           }).map(item => String(item));
@@ -1790,7 +1865,7 @@
           const dropped = [];
           syllables.forEach(item => {
             const symbol = String(item);
-            const match = symbol.toLowerCase().match(/^([a-zü]+)([0-5])?$/);
+            const match = symbol.toLowerCase().match(/^([a-zü]+)([0-5])$/);
             if (!match) {
               // Punctuation and spaces are valid symbols in the pinyin voice.
               if (has(symbol)) phonemes.push(symbol);
@@ -1985,6 +2060,9 @@
       }
       const result = lookupDictionary(kanji.charAt(0));
       displayResult(result);
+      if (result.meaning && result.meaning.includes('未登録')) {
+        showMessage('内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください。', 5000);
+      }
     });
 
     manualKanjiInput.addEventListener('keydown', (e) => {
@@ -2003,6 +2081,7 @@
 
         analyzeBtn.disabled = true;
         analyzeBtn.innerHTML = '<span class="spinner"></span>解析中...';
+        resultPanel.setAttribute('aria-busy', 'true');
         stopSpeaking();
 
         detectedKanjiEl.textContent = '--';
@@ -2048,7 +2127,7 @@
               const result = lookupDictionary(kanji);
               displayResult(result);
               if (result.meaning === '（辞書に未登録）') {
-                showMessage('認識された漢字: ' + kanji + '（辞書に未登録。手動入力で検索できます）', 5000);
+                showMessage('認識された漢字: ' + kanji + '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）', 5000);
               } else {
                 showMessage('認識された漢字: ' + kanji, 3000);
               }
@@ -2067,9 +2146,9 @@
             setProgress(100);
             scheduleProgressHide(1000);
           } catch (ocrErr) {
-            console.error('OCR Error:', ocrErr);
+            console.error('OCR Error:', ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
             showProgress(false);
-            showMessage('OCR認識に失敗しました。手動入力をお使いください。', 5000);
+            showMessage('OCR認識に失敗しました。手動入力をお使いください。' + (ocrErr && ocrErr.message ? ' ' + ocrErr.message : ''), 0);
             meaningEl.textContent = 'API不要モード: 下の入力欄に漢字を入力して検索してください。';
           }
         }
@@ -2080,6 +2159,7 @@
       } finally {
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = '漢字分析';
+        resultPanel.removeAttribute('aria-busy');
       }
     });
 

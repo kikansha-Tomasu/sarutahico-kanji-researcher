@@ -29,6 +29,21 @@ EXTRA_TYPES = {
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def translate_path(self, path: str) -> str:
+        # Keep the development server confined to ROOT even when it is started
+        # with --bind 0.0.0.0. SimpleHTTPRequestHandler alone follows "../".
+        translated = super().translate_path(path)
+        root = os.path.realpath(self.directory)
+        target = os.path.realpath(translated)
+        if target != root and not target.startswith(root + os.sep):
+            return os.path.join(root, "__blocked__")
+        return translated
+
+    def list_directory(self, path: str):
+        # Avoid exposing directory listings from the development server.
+        self.send_error(404, "No permission to list directory")
+        return None
+
     def guess_type(self, path: str) -> str:
         ext = os.path.splitext(path)[1].lower()
         if ext in EXTRA_TYPES:
@@ -37,6 +52,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         super().end_headers()
 
 

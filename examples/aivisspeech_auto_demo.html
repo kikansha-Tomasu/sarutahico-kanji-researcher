@@ -879,10 +879,13 @@
             const sampleBtn = document.createElement('button');
             sampleBtn.className = 'sample-btn';
             
-            sampleBtn.innerHTML = `
-                <div class="sample-text">${sample.text}</div>
-                <div class="sample-meta">${sample.situation} | ${sample.emotion}</div>
-            `;
+            const textDiv = document.createElement('div');
+            textDiv.className = 'sample-text';
+            textDiv.textContent = sample.text;
+            const metaDiv = document.createElement('div');
+            metaDiv.className = 'sample-meta';
+            metaDiv.textContent = `${sample.situation} | ${sample.emotion}`;
+            sampleBtn.append(textDiv, metaDiv);
             
             sampleBtn.addEventListener('click', async () => {
                 console.log(`🎯 選択: [${categoryName}] ${sample.situation}`);
