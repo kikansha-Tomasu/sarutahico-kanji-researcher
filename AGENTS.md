@@ -152,6 +152,46 @@
 - Piper モデルの初回ダウンロードは大きいため、進捗表示とキャッシュを必ず設ける。
   リモート取得は完全性検証後にのみキャッシュする（キャッシュキーに SRI を含む）。
 
+## 2026-11-28 追加修正の知見
+- キーボード描画は progressive enhancement。`role="application"` のキャンバスに
+  フォーカスすると可視カーソルを表示し、矢印（Shift で 4 倍）/ Space・Enter /
+  Home / Esc / Ctrl+Z を描画 primitive へ接続する。支援技術向けの操作説明と
+  `aria-live="polite"` の状態を `.visually-hidden` で併設し、pointer と同じ
+  `drawLine()` / undo スタックを再利用する。blur 時は描画を終了させる。
+- 解析競合は `analysisGeneration` と `cancelAnalysis()` で制御する。モード切替、
+  キャンバス初期化、undo、pointer/keyboard 描画、画像選択、手動検索で実行中解析を
+  破棄し、古い generation の結果・finally 処理を捨てる。空キャンバスの早期 return は
+  generation を進めない（polite 状態が「完了」と誤報しないようにするため）。
+  focus 復元は generation が同じで、かつ利用者が別コントロールへ移動していない
+  場合だけ行う。成否は `completed` フラグで分け、失敗時は「解析に失敗しました」と
+  通知する。
+- pointer と keyboard のストロークは同時に進行させない。`startDrawing()` の前に
+  `setKeyPen(false)` を呼ばないと、Esc が pointer 側の undo 状態を取り消し、
+  keyboard 側の undo スタックが残る。
+- メッセージは `lastMessageText` に正規の文言を保持する。`showMessage()` の再通知
+  では DOM を一時的に空にするが、他コードが `messageBox.textContent` を読むと
+  空文字を拾うため、そこでは `lastMessageText` を使う。非表示時は `visibility:hidden`
+  とし、`textContent` も消す（opacity だけだと a11y tree に古い alert が残る）。
+- API URL は `http:` / `https:` かつ `127.0.0.1` / `localhost` / `::1` のみ許可し、
+  embedded credentials を拒否する。2 箇所の fetch は `AbortController` +
+  15 秒タイムアウト（`API_TIMEOUT_MS`）を付け、レスポンス本体の消費が終わるまで
+  外側の `finally` でタイマーを維持する（ヘッダ到達時に解除するとボディ読み取りが
+  無期限にハングする）。
+- `tools/serve.py` は path confinement に加え allowlist を適用する
+  （`vendor/` / `examples/` / `main.html` / `sarutahico_logo.png` のみ）。
+  `--bind 0.0.0.0` でも `.git` / `backups` / `tools` / ドキュメントを配信しない。
+  古いサーバープロセスが残っていると修正が見えないため、 curl 検証前に
+  プロセスを確認して再起動する。
+- pinyin-pro は `。 ` や `！！` のような連続記号を 1 トークンにまとめることがある。
+  `Array.from()` で 1 文字ずつに分割し、既知シンボルだけを順に保持する。
+- Piper は文末記号（`。？！….`）で phoneme group を切り、各 group に
+  BOS/EOS を設定して `session.run()` を実行し、PCM を連結する。旧方式の
+  1 回推論では複数文の句間が学習時と異なった。音素グループが空白だけの
+  場合は推論しない。
+- `cachedFetch()` は integrity 付き remote ダウンロードのみキャッシュする。
+  ローカル同梱アセットはビルド時に検証済みで、キャッシュすると更新後に古い
+  バイト列が残るためキャッシュしない（`PIPER_LOCAL_CACHE_VERSION` は削除）。
+
 ## 検証コマンド（Windows bash）
 ```bash
 cd "C:\Users\ryosk\OneDrive\ドキュメント\App_CN_character_researcher"

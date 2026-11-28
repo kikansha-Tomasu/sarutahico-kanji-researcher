@@ -29,6 +29,9 @@ EXTRA_TYPES = {
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    ALLOWED_TOP_DIRS = {"vendor", "examples"}
+    ALLOWED_ROOT_FILES = {"main.html", "sarutahico_logo.png"}
+
     def translate_path(self, path: str) -> str:
         # Keep the development server confined to ROOT even when it is started
         # with --bind 0.0.0.0. SimpleHTTPRequestHandler alone follows "../".
@@ -36,6 +39,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         root = os.path.realpath(self.directory)
         target = os.path.realpath(translated)
         if target != root and not target.startswith(root + os.sep):
+            return os.path.join(root, "__blocked__")
+        # Only serve files needed by the app. Otherwise --bind 0.0.0.0 would
+        # expose .git history, backups, tools and docs to other hosts.
+        relative = os.path.relpath(target, root)
+        parts = relative.split(os.sep)
+        allowed = (
+            parts[0] in self.ALLOWED_TOP_DIRS
+            or (len(parts) == 1 and parts[0] in self.ALLOWED_ROOT_FILES)
+        )
+        if not allowed:
             return os.path.join(root, "__blocked__")
         return translated
 

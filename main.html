@@ -30,10 +30,15 @@
 
     .canvas-wrap{background:#fff;padding:16px;border-radius:10px;border:3px solid var(--gold);display:flex;flex-direction:column;align-items:center}
     canvas#drawCanvas{background:#fff;width:360px;height:360px;border:2px solid #ddd;border-radius:6px; touch-action: none; cursor:crosshair;}
+    .canvas-stage{position:relative;display:inline-block;max-width:100%;}
+    #kbCursor{position:absolute;display:none;width:18px;height:18px;border:2px solid var(--purple);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 0 1px #fff;}
+    #kbCursor.visible{display:block;}
 
     .tools{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .btn{padding:10px 14px;border-radius:10px;border:none;font-weight:600;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,0.08); transition: all 0.2s; font-size:14px;}
     .btn:disabled { background: #ccc; cursor: not-allowed; opacity:0.6; }
+    .btn[aria-disabled="true"] { opacity:0.65; cursor:not-allowed; }
+    input[type="range"] { height:44px; touch-action:manipulation; }
     .primary{background:var(--red);color:#fff}
     .file-btn{background:var(--green);color:#fff}
     .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
@@ -48,6 +53,7 @@
     .field b{display:block;margin-bottom:6px; color: #555;}
     .field div { min-height: 20px; padding: 4px; word-break:break-word; }
     textarea, input[type=text], select, input[type=number]{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;background:#fff; font-family:inherit;}
+    .manual-input-row input,.tts-controls select{min-width:0;max-width:100%;}
     .audio-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
     .play-btn{padding:8px 16px;border-radius:8px;border:none;font-weight:600;cursor:pointer;background:var(--purple);color:#fff;font-size:13px; transition:all 0.2s;}
@@ -55,16 +61,19 @@
     .play-btn.playing{background:var(--green);}
 
     .message-box {
-      display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      display: block; position: fixed; top: 20px; left: 50%; transform: translate(-50%,-200%);
+      opacity: 0; visibility: hidden; pointer-events: none;
       background-color: var(--red); color: white; padding: 16px 24px; border-radius: 10px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 1000; max-width:90vw;
+      transition: opacity 0.15s, transform 0.15s;
     }
+    .message-box.visible{transform:translate(-50%,0);opacity:1;visibility:visible;}
 
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px;}
     @keyframes spin{to{transform:rotate(360deg)}}
 
-    .color-picker{display:flex;gap:6px;align-items:center;}
-    .color-dot{width:28px;height:28px;border-radius:50%;border:2px solid #ddd;cursor:pointer; transition:transform 0.15s;}
+    .color-picker{display:flex;gap:8px;align-items:center;}
+    .color-dot{width:44px;height:44px;border-radius:50%;border:2px solid #ddd;cursor:pointer; transition:transform 0.15s;}
     .color-dot.selected{transform:scale(1.2);border-color:var(--purple);}
     .size-slider{width:120px;}
 
@@ -121,7 +130,7 @@
         <div id="apiSettings" style="display:none;">
           <label for="apiUrl" style="font-weight:bold; color:var(--purple);">OpenAI Compatible API Base URL</label>
           <input type="text" id="apiUrl" value="http://127.0.0.1:1234/v1" style="margin-top: 4px;">
-          <p style="font-size:11px; color:#666; margin:4px 0 0;">ローカルで稼働しているOpenAI互換APIのURLを指定してください。</p>
+          <p style="font-size:11px; color:#666; margin:4px 0 0;">ローカル（127.0.0.1 / localhost / ::1）で稼働しているOpenAI互換APIのURLを指定してください。</p>
         </div>
         <div id="offlineInfo" style="font-size:12px;color:#666;margin-top:4px;">
           内蔵辞書 + Tesseract.js OCR で動作。API不要。
@@ -130,8 +139,14 @@
       </div>
 
       <div class="canvas-wrap panel">
-        <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス" tabindex="0" role="application" aria-label="手書きキャンバス。キーボードのみの場合はファイル選択または手動入力をお使いください。"></canvas>
+        <div class="canvas-stage" id="canvasStage">
+          <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス" tabindex="0" role="application" aria-label="手書きキャンバス" aria-describedby="canvasKeyboardHelp"></canvas>
+          <div id="kbCursor" aria-hidden="true"></div>
+        </div>
+        <div id="canvasKeyboardHelp" class="visually-hidden">フォーカス中に矢印キーでカーソルを移動し、スペースまたはEnterで描画の開始・終了、Escで現在の線を取り消し、Ctrl+Zで元に戻します。Tabでキャンバスから出られます。</div>
+        <div id="kbDrawStatus" class="visually-hidden" aria-live="polite"></div>
         <div class="progress-bar" id="progressBar" role="progressbar" aria-label="OCRの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="progressFill"></div></div>
+        <div id="analysisStatus" class="visually-hidden" aria-live="polite"></div>
         <div class="tools">
           <label class="btn file-btn" style="display:inline-flex;align-items:center;gap:8px;">
             ファイルを選択
@@ -162,7 +177,7 @@
       <div class="panel" style="border:3px solid var(--green);">
         <div style="font-weight:700;color:var(--purple);">使い方</div>
         <ol style="margin:8px 0 0 18px;padding:0;color:#333;font-size:13px;">
-          <li>画像を選ぶかキャンバスに手書きし、「漢字分析」を押します。</li>
+          <li>画像を選ぶかキャンバスに手書きし、「漢字分析」を押します。キーボードではキャンバスにフォーカスして矢印キーとスペースでも描画できます。</li>
           <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書。主要スクリプトは同梱、不足時のみCDN取得（補助ファイルは同梱必須）。</li>
           <li><b>API連携</b>: ローカルAIサーバーで高精度解析（任意）。</li>
         </ol>
@@ -264,7 +279,7 @@
     // v1: removed huayan model. v2: unverified Hugging Face downloads.
     // v3: cache keys include SRI; only verified blobs are stored.
     const PIPER_CACHE_NAME = 'sarutahico-piper-v3';
-    const PIPER_LOCAL_CACHE_VERSION = '20261128';
+    const API_TIMEOUT_MS = 15000;
     // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
     const PIPER_VOICES = {
       'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
@@ -404,9 +419,14 @@
         const sign = signRun ? '-' : '';
         const prefixSigns = signRun.slice(0, -1);
         const multipleSigns = signRun.length > 1;
+        if (signRun) {
+          // A sign separated from its digits by spaces still applies to the
+          // following number ("- 5%" -> 百分之负五). Keep the gap only when
+          // no digit follows it.
+          while (i < text.length && /\s/.test(text[i])) i++;
+        }
         if (i >= text.length || !/\d/.test(text[i])) {
-          out += signRun;
-          if (i < text.length) out += text[i++];
+          out += text.slice(start, i);
           continue;
         }
         let integer = '';
@@ -871,6 +891,9 @@
     // ---- DOM要素 ----
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
+    const canvasStage = document.getElementById('canvasStage');
+    const kbCursor = document.getElementById('kbCursor');
+    const kbDrawStatus = document.getElementById('kbDrawStatus');
     const fileInput = document.getElementById('fileInput');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const undoBtn = document.getElementById('undoBtn');
@@ -879,6 +902,8 @@
     const clearBtn = document.getElementById('clearBtn');
     const apiUrlInput = document.getElementById('apiUrl');
     const messageBox = document.getElementById('messageBox');
+    let lastMessageText = '';
+    const analysisStatusEl = document.getElementById('analysisStatus');
     const manualKanjiInput = document.getElementById('manualKanjiInput');
     const lookupBtn = document.getElementById('lookupBtn');
     const offlineModeBtn = document.getElementById('offlineModeBtn');
@@ -910,6 +935,9 @@
 
     // ---- 状態 ----
     let drawing = false;
+    const KEY_STEP = 18;
+    let keyDrawing = false;
+    let keyCursor = { x: canvas.width / 2, y: canvas.height / 2 };
     let tool = 'pen';
     let last = { x: 0, y: 0 };
     let penSize = 12;
@@ -933,6 +961,19 @@
     let activeUtterance = null;
     let activeButton = null;
     let playbackToken = 0;
+    let analysisGeneration = 0;
+    let analysisActive = false;
+    function cancelAnalysis() {
+      analysisGeneration++;
+      if (!analysisActive) return;
+      analysisActive = false;
+      analyzeBtn.disabled = false;
+      analyzeBtn.removeAttribute('aria-disabled');
+      analyzeBtn.textContent = '漢字分析';
+      resultPanel.removeAttribute('aria-busy');
+      analysisStatusEl.textContent = '解析をキャンセルしました';
+      showProgress(false);
+    }
 
     if (location.protocol === 'file:') {
       fileWarning.style.display = 'block';
@@ -951,6 +992,7 @@
       playExampleBtn.disabled = true;
     }
     function setMode(apiMode) {
+      cancelAnalysis();
       useApiMode = apiMode;
       offlineModeBtn.classList.toggle('active', !apiMode);
       apiModeBtn.classList.toggle('active', apiMode);
@@ -969,6 +1011,8 @@
 
     // ---- キャンバス初期化 ----
     function initCanvas(saveState = true) {
+      cancelAnalysis();
+      keyDrawing = false;
       if (saveState) saveUndoState();
       ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = '#ffffff';
@@ -992,6 +1036,8 @@
     }
 
     function undo() {
+      cancelAnalysis();
+      if (keyDrawing) setKeyPen(false);
       if (undoStack.length === 0) {
         showMessage('元に戻す操作がありません。');
         undoBtn.disabled = true;
@@ -1025,8 +1071,14 @@
 
     function startDrawing(e) {
       e.preventDefault();
+      cancelAnalysis();
+      // Pointer and keyboard strokes must not overlap, otherwise Escape would
+      // undo the pointer state while claiming the keyboard stroke was canceled.
+      if (keyDrawing) setKeyPen(false);
       drawing = true;
       last = toCanvasCoords(e);
+      keyCursor = { x: last.x, y: last.y };
+      updateKeyCursor();
       saveUndoState();
     }
     function stopDrawing() { drawing = false; }
@@ -1054,7 +1106,85 @@
     canvas.addEventListener('pointerleave', stopDrawing);
     canvas.addEventListener('pointercancel', stopDrawing);
 
-    clearBtn.addEventListener('click', () => initCanvas());
+    // ---- キーボード描画（ポインタ操作と同じ描画primitiveを再利用） ----
+    function updateKeyCursor() {
+      if (!kbCursor || !kbCursor.classList.contains('visible')) return;
+      const canvasRect = canvas.getBoundingClientRect();
+      const stageRect = canvasStage.getBoundingClientRect();
+      if (!canvasRect.width || !canvasRect.height) return;
+      kbCursor.style.left = (canvasRect.left - stageRect.left + keyCursor.x * canvasRect.width / canvas.width) + 'px';
+      kbCursor.style.top = (canvasRect.top - stageRect.top + keyCursor.y * canvasRect.height / canvas.height) + 'px';
+    }
+
+    function setKeyPen(down) {
+      if (down === keyDrawing) return;
+      keyDrawing = down;
+      if (down) {
+        saveUndoState();
+        drawLine(keyCursor.x, keyCursor.y, keyCursor.x, keyCursor.y);
+        kbDrawStatus.textContent = '描画を開始しました';
+      } else {
+        kbDrawStatus.textContent = '描画を終了しました';
+      }
+    }
+
+    function cancelKeyStroke() {
+      if (!keyDrawing) return;
+      keyDrawing = false;
+      undo();
+      kbDrawStatus.textContent = '現在の線を取り消しました';
+    }
+
+    canvas.addEventListener('focus', () => {
+      kbCursor.classList.add('visible');
+      updateKeyCursor();
+    });
+    canvas.addEventListener('blur', () => {
+      kbCursor.classList.remove('visible');
+      if (keyDrawing) setKeyPen(false);
+    });
+    window.addEventListener('resize', updateKeyCursor);
+
+    canvas.addEventListener('keydown', (e) => {
+      let dx = 0;
+      let dy = 0;
+      let handled = true;
+      switch (e.key) {
+        case 'ArrowLeft': dx = -KEY_STEP; break;
+        case 'ArrowRight': dx = KEY_STEP; break;
+        case 'ArrowUp': dy = -KEY_STEP; break;
+        case 'ArrowDown': dy = KEY_STEP; break;
+        case 'Home':
+          if (keyDrawing) setKeyPen(false);
+          keyCursor = { x: canvas.width / 2, y: canvas.height / 2 };
+          kbDrawStatus.textContent = 'キャンバスの中央に移動しました';
+          break;
+        case ' ':
+        case 'Spacebar':
+        case 'Enter':
+          setKeyPen(!keyDrawing);
+          break;
+        default: handled = false;
+      }
+      if (!handled) return;
+      cancelAnalysis();
+      e.preventDefault();
+      if (dx || dy) {
+        const factor = e.shiftKey ? 4 : 1;
+        const next = {
+          x: Math.max(0, Math.min(canvas.width, keyCursor.x + dx * factor)),
+          y: Math.max(0, Math.min(canvas.height, keyCursor.y + dy * factor))
+        };
+        if (keyDrawing) drawLine(keyCursor.x, keyCursor.y, next.x, next.y);
+        keyCursor = next;
+      }
+      updateKeyCursor();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (keyDrawing) setKeyPen(false);
+      initCanvas();
+    });
     penBtn.addEventListener('click', () => setTool('pen'));
     eraserBtn.addEventListener('click', () => setTool('eraser'));
     undoBtn.addEventListener('click', undo);
@@ -1102,7 +1232,8 @@
         undo();
       }
       if (e.key === 'Escape') {
-        stopDrawing();
+        if (keyDrawing) cancelKeyStroke();
+        else stopDrawing();
       }
     });
 
@@ -1110,6 +1241,7 @@
     fileInput.addEventListener('change', (ev) => {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
+      cancelAnalysis();
       clearResult();
       if (!file.type.startsWith('image/')) {
         showMessage('画像ファイルを選択してください。');
@@ -1135,13 +1267,27 @@
 
     // ---- メッセージ表示 ----
     function showMessage(text, duration = 3000) {
-      messageBox.textContent = text;
-      messageBox.style.display = 'block';
       clearTimeout(messageBox._timer);
       messageBox._timer = null;
+      const repeat = lastMessageText === text;
+      lastMessageText = text;
+      const token = (messageBox._token || 0) + 1;
+      messageBox._token = token;
+      messageBox.textContent = text;
+      messageBox.classList.add('visible');
+      if (repeat) {
+        // Re-announce identical alerts by clearing and restoring the text.
+        // The canonical text lives in lastMessageText so other code can read
+        // it even during the animation frame when the node is blank.
+        messageBox.textContent = '';
+        requestAnimationFrame(() => {
+          if (messageBox._token === token) messageBox.textContent = text;
+        });
+      }
       if (duration > 0) {
         messageBox._timer = setTimeout(() => {
-          messageBox.style.display = 'none';
+          messageBox.classList.remove('visible');
+          if (messageBox._token === token) messageBox.textContent = '';
         }, duration);
       }
     }
@@ -1325,6 +1471,10 @@
       try {
         const url = new URL(raw);
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        if (url.username || url.password) return '';
+        const host = url.hostname.toLowerCase();
+        const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+        if (!loopback) return '';
         return url.toString().replace(/\/$/, '');
       } catch (e) {
         return '';
@@ -1334,7 +1484,7 @@
     async function extractKanjiFromImage(imageDataUrl) {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        showMessage('APIのURLが設定されていません。');
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。');
         return null;
       }
       const prompt = "画像に写っている中国語の漢字を1文字だけ抽出して、その文字だけを返してください。他のテキストは一切含めないでください。";
@@ -1352,19 +1502,27 @@
         max_tokens: 10
       };
       try {
-        const res = await fetch(`${apiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        if (!res.ok) {
-          await res.text();
-          throw new Error(`API Error ${res.status}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        try {
+          const res = await fetch(`${apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+          if (!res.ok) {
+            await res.text();
+            throw new Error(`API Error ${res.status}`);
+          }
+          const json = await res.json();
+          const text = (json.choices?.[0]?.message?.content ?? '').trim();
+          const match = text.match(/[\u4e00-\u9fff]/);
+          return match ? match[0] : (text ? text.charAt(0) : '');
+        } finally {
+          // Keep the deadline active while the response body is consumed too.
+          clearTimeout(timeoutId);
         }
-        const json = await res.json();
-        const text = (json.choices?.[0]?.message?.content ?? '').trim();
-        const match = text.match(/[\u4e00-\u9fff]/);
-        return match ? match[0] : (text ? text.charAt(0) : '');
       } catch (err) {
         console.error('API Error:', err);
         showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーが起動しているか確認してください。');
@@ -1375,7 +1533,7 @@
     async function generateDetailsForKanji(kanji) {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        showMessage('APIのURLが設定されていません。');
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。');
         return null;
       }
       const prompt = `あなたは中国語漢字の専門家です。以下の漢字について、JSON形式で情報を返してください。出力は厳密にこのフォーマットに従ってください。
@@ -1391,25 +1549,33 @@
 - 中国語例文とその日本語訳の文法がそれぞれ必ず正しくなるようにしてください。
 - JSON以外の余計なテキストは絶対に出力しないでください。`;
       try {
-        const res = await fetch(`${apiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: GPT_OSS_MODEL, messages: [{ role: 'user', content: prompt }] })
-        });
-        if (!res.ok) { await res.text(); throw new Error(`API error: ${res.status}`); }
-        const data = await res.json();
-        const content = (data.choices?.[0]?.message?.content ?? '').trim();
-        let jsonStr = content;
-        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (jsonMatch) jsonStr = jsonMatch[1].trim();
-        const result = JSON.parse(jsonStr);
-        if (!result || typeof result !== 'object') throw new Error('Invalid response format');
-        return {
-          kanji: result.kanji || kanji,
-          meaning: result.meaning || '--',
-          pinyin: result.pinyin || '--',
-          example: result.example || '--'
-        };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        try {
+          const res = await fetch(`${apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: GPT_OSS_MODEL, messages: [{ role: 'user', content: prompt }] }),
+            signal: controller.signal
+          });
+          if (!res.ok) { await res.text(); throw new Error(`API error: ${res.status}`); }
+          const data = await res.json();
+          const content = (data.choices?.[0]?.message?.content ?? '').trim();
+          let jsonStr = content;
+          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (jsonMatch) jsonStr = jsonMatch[1].trim();
+          const result = JSON.parse(jsonStr);
+          if (!result || typeof result !== 'object') throw new Error('Invalid response format');
+          return {
+            kanji: result.kanji || kanji,
+            meaning: result.meaning || '--',
+            pinyin: result.pinyin || '--',
+            example: result.example || '--'
+          };
+        } finally {
+          // Keep the deadline active while the response body is consumed too.
+          clearTimeout(timeoutId);
+        }
       } catch (err) {
         console.error('API Error:', err);
         showMessage('意味・例文の生成に失敗しました。モデルの応答を確認してください。');
@@ -1707,23 +1873,24 @@
     }
 
     async function cachedFetch(url, onProgress, integrity = '') {
+      // Only integrity-verified remote downloads are cached. Vendored local
+      // assets are verified by tools/fetch-assets.py at build time; caching
+      // them without a content hash could serve stale files after an update.
       let cache = null;
-      try {
-        if (window.caches) cache = await caches.open(PIPER_CACHE_NAME);
-      } catch (e) {
-        console.warn('Cache API unavailable:', e);
+      if (integrity) {
+        try {
+          if (window.caches) cache = await caches.open(PIPER_CACHE_NAME);
+        } catch (e) {
+          console.warn('Cache API unavailable:', e);
+        }
       }
-      // Cache keys carry the SRI so a changed hash cannot reuse stale content.
-      // Only blobs that passed verification are ever written under such a key.
-      const cacheKey = integrity
-        ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}`
-        : `${url}?sarutahico_local=${PIPER_LOCAL_CACHE_VERSION}`;
+      const cacheKey = integrity ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}` : '';
       if (cache) {
         try {
           const hit = await cache.match(cacheKey);
           if (hit) {
             const cachedBlob = await hit.blob();
-            if (integrity) await verifyBlobIntegrity(cachedBlob, integrity);
+            await verifyBlobIntegrity(cachedBlob, integrity);
             return cachedBlob;
           }
         } catch (e) {
@@ -1867,9 +2034,14 @@
             const symbol = String(item);
             const match = symbol.toLowerCase().match(/^([a-zü]+)([0-5])$/);
             if (!match) {
-              // Punctuation and spaces are valid symbols in the pinyin voice.
-              if (has(symbol)) phonemes.push(symbol);
-              else dropped.push(symbol);
+              // pinyin-pro groups consecutive non-Chinese characters, e.g.
+              // "。 " or "！！"; the voice map only has single symbols.
+              // Keep every known character in order instead of dropping the
+              // whole cluster.
+              Array.from(symbol).forEach(single => {
+                if (has(single)) phonemes.push(single);
+                else dropped.push(single);
+              });
               return;
             }
             let body = match[1].replace(/ü/g, 'v');
@@ -1917,43 +2089,76 @@
         const phonemes = engine.phonemize(text);
         if (token !== playbackToken) return;
         // Map by symbol so IDs outside the model's embedding cannot reach it.
-        // piper1-gpl pads only after group-end symbols, not after BOS/every phoneme.
+        // piper1-gpl resets BOS/EOS and runs inference per sentence.
         const idMap = engine.config.phoneme_id_map || {};
         const idOf = (symbol, fallback) => Array.isArray(idMap[symbol]) ? Number(idMap[symbol][0]) : fallback;
         const bos = idOf('^', 1);
         const eos = idOf('$', 2);
         const pad = idOf('_', 0);
-        const ids = [bos];
+        const sentenceEnd = new Set(['。', '？', '?', '！', '!', '…', '.']);
         const dropped = [];
+        const groups = [];
+        let current = [];
         (phonemes.phonemes || []).forEach(phoneme => {
-          const mapped = idMap[phoneme];
-          if (!Array.isArray(mapped)) {
-            dropped.push(phoneme);
-            return;
+          current.push(phoneme);
+          if (sentenceEnd.has(phoneme)) {
+            groups.push(current);
+            current = [];
           }
-          mapped.forEach(id => ids.push(Number(id)));
-          if (PIPER_GROUP_END.has(phoneme)) ids.push(pad);
         });
-        ids.push(eos);
+        if (current.length) groups.push(current);
+
+        const idGroups = [];
+        groups.forEach(group => {
+          if (!group.some(symbol => symbol !== ' ')) return;
+          const ids = [bos];
+          group.forEach(phoneme => {
+            const mapped = idMap[phoneme];
+            if (!Array.isArray(mapped)) {
+              dropped.push(phoneme);
+              return;
+            }
+            mapped.forEach(id => ids.push(Number(id)));
+            if (PIPER_GROUP_END.has(phoneme)) ids.push(pad);
+          });
+          ids.push(eos);
+          if (ids.length > 3) idGroups.push(ids);
+        });
         if (dropped.length) console.warn('[piper] Unsupported phonemes omitted:', dropped);
         if (token !== playbackToken) return;
-        if (ids.length <= 3) throw new Error('No phonemes recognized by the voice model');
+        if (!idGroups.length) throw new Error('No phonemes recognized by the voice model');
 
         const inf = engine.config.inference;
-        const feeds = {
-          input: new window.ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
-          input_lengths: new window.ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)])),
-          scales: new window.ort.Tensor('float32', Float32Array.from([
-            inf.noise_scale, inf.length_scale / ttsRate, inf.noise_w
-          ]))
-        };
-        if (engine.config.speaker_id_map && Object.keys(engine.config.speaker_id_map).length) {
-          feeds.sid = new window.ort.Tensor('int64', BigInt64Array.from([0n]));
+        const scales = Float32Array.from([
+          inf.noise_scale, inf.length_scale / ttsRate, inf.noise_w
+        ]);
+        const speakerIds = engine.config.speaker_id_map && Object.keys(engine.config.speaker_id_map).length
+          ? BigInt64Array.from([0n])
+          : null;
+        const pcmChunks = [];
+        let pcmLength = 0;
+        for (const ids of idGroups) {
+          const feeds = {
+            input: new window.ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
+            input_lengths: new window.ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)])),
+            scales: new window.ort.Tensor('float32', Float32Array.from(scales))
+          };
+          if (speakerIds) feeds.sid = new window.ort.Tensor('int64', speakerIds);
+          const result = await engine.session.run(feeds);
+          if (token !== playbackToken) return;
+          const outputTensor = result.output || result[Object.keys(result)[0]];
+          const chunk = new Float32Array(outputTensor.data.length);
+          chunk.set(outputTensor.data);
+          pcmChunks.push(chunk);
+          pcmLength += chunk.length;
         }
-        const result = await engine.session.run(feeds);
-        if (token !== playbackToken) return;
-        const outputTensor = result.output || result[Object.keys(result)[0]];
-        const wav = pcmToWav(outputTensor.data, engine.config.audio.sample_rate);
+        const pcm = new Float32Array(pcmLength);
+        let pcmOffset = 0;
+        pcmChunks.forEach(chunk => {
+          pcm.set(chunk, pcmOffset);
+          pcmOffset += chunk.length;
+        });
+        const wav = pcmToWav(pcm, engine.config.audio.sample_rate);
         const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
         if (token !== playbackToken || activeButton !== btn) {
           URL.revokeObjectURL(url);
@@ -2053,6 +2258,7 @@
     }
 
     lookupBtn.addEventListener('click', () => {
+      cancelAnalysis();
       const kanji = manualKanjiInput.value.trim();
       if (!kanji) {
         showMessage('漢字を1文字入力してください。');
@@ -2073,15 +2279,20 @@
 
     // ---- メイン処理 ----
     analyzeBtn.addEventListener('click', async () => {
+      if (analysisActive || analyzeBtn.getAttribute('aria-disabled') === 'true') return;
+      if (isCanvasEmpty()) {
+        showMessage('キャンバスが空です。文字を描くか画像をアップロードしてください。');
+        return;
+      }
+      const focusBeforeAnalysis = document.activeElement;
+      const generation = ++analysisGeneration;
+      analysisActive = true;
+      let completed = false;
       try {
-        if (isCanvasEmpty()) {
-          showMessage('キャンバスが空です。文字を描くか画像をアップロードしてください。');
-          return;
-        }
-
-        analyzeBtn.disabled = true;
+        analyzeBtn.setAttribute('aria-disabled', 'true');
         analyzeBtn.innerHTML = '<span class="spinner"></span>解析中...';
         resultPanel.setAttribute('aria-busy', 'true');
+        analysisStatusEl.textContent = '解析中です';
         stopSpeaking();
 
         detectedKanjiEl.textContent = '--';
@@ -2098,8 +2309,9 @@
         if (useApiMode) {
           // APIモード
           const kanji = await extractKanjiFromImage(dataUrl);
+          if (generation !== analysisGeneration) return;
           if (kanji === null) {
-            meaningEl.textContent = messageBox.textContent || 'APIの設定を確認してください。';
+            meaningEl.textContent = lastMessageText || 'APIの設定を確認してください。';
             return;
           }
           if (!kanji) {
@@ -2107,8 +2319,10 @@
             return;
           }
           const result = await generateDetailsForKanji(kanji);
+          if (generation !== analysisGeneration) return;
           if (!result) return;
           displayResult(result);
+          completed = true;
         } else {
           // オフラインモード: 画像前処理 + Tesseract.js OCR
           try {
@@ -2121,11 +2335,13 @@
             setProgress(15);
 
             const kanji = await runOCR(processedDataUrl, { manageProgress: false });
+            if (generation !== analysisGeneration) return;
             setProgress(90);
 
             if (kanji) {
               const result = lookupDictionary(kanji);
               displayResult(result);
+              completed = true;
               if (result.meaning === '（辞書に未登録）') {
                 showMessage('認識された漢字: ' + kanji + '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）', 5000);
               } else {
@@ -2134,9 +2350,11 @@
             } else {
               // Fallback: try original image without preprocessing
               const kanji2 = await runOCR(dataUrl, { manageProgress: false });
+              if (generation !== analysisGeneration) return;
               if (kanji2) {
                 const result = lookupDictionary(kanji2);
                 displayResult(result);
+                completed = true;
                 showMessage('認識された漢字: ' + kanji2, 3000);
               } else {
                 showMessage('漢字を認識できませんでした。手動入力をお使いください。', 5000);
@@ -2154,12 +2372,23 @@
         }
 
       } catch (err) {
+        if (generation !== analysisGeneration) return;
         console.error('Analysis Error:', err);
         showMessage('解析中に予期せぬエラーが発生しました。');
       } finally {
+        if (generation !== analysisGeneration) return;
+        analysisActive = false;
         analyzeBtn.disabled = false;
+        analyzeBtn.removeAttribute('aria-disabled');
         analyzeBtn.textContent = '漢字分析';
         resultPanel.removeAttribute('aria-busy');
+        analysisStatusEl.textContent = completed ? '解析が完了しました' : '解析に失敗しました';
+        const currentFocus = document.activeElement;
+        if (focusBeforeAnalysis && focusBeforeAnalysis.isConnected &&
+            typeof focusBeforeAnalysis.focus === 'function' &&
+            (currentFocus === focusBeforeAnalysis || currentFocus === document.body)) {
+          focusBeforeAnalysis.focus();
+        }
       }
     });
 

@@ -9,5 +9,7 @@
   - Piper 導入前の状態です。
 - `main_before_residual_fix_20261128.html`
   - UI・進捗表示・OCR・キャッシュ・数値展開の残存修正前の状態です。
+- `main_before_keyboard_csp_20261128.html`
+  - キーボード描画、解析の競合制御、API URL 制限、開発サーバーの allowlist、Piper の文分割導入前の状態です。
 
 現行の実装はリポジトリ直下の `main.html` と `tools/fetch-assets.py` のみを参照してください。
