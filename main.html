@@ -84,6 +84,7 @@
     .mode-toggle{display:flex;gap:4px;margin-bottom:8px;}
     .mode-toggle button{flex:1;padding:8px;border-radius:8px;border:2px solid #ddd;background:#fff;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.2s;}
     .mode-toggle button.active{background:var(--purple);color:#fff;border-color:var(--purple);}
+    .field-error{font-size:11px;color:#8a1c1c;margin:4px 0 0;font-weight:700;}
 
     .tts-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;}
     .tts-controls label{font-size:12px;color:#555;}
@@ -107,6 +108,9 @@
       canvas#drawCanvas{width:100%;max-width:360px;height:auto;aspect-ratio:1}
       .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
     }
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:0.001ms!important;animation-iteration-count:1!important;transition-duration:0.001ms!important;scroll-behavior:auto!important;}
+    }
 
     footer{grid-column:1/-1;text-align:right;color:#666;font-size:12px}
   </style>
@@ -129,8 +133,9 @@
         </div>
         <div id="apiSettings" style="display:none;">
           <label for="apiUrl" style="font-weight:bold; color:var(--purple);">OpenAI Compatible API Base URL</label>
-          <input type="text" id="apiUrl" value="http://127.0.0.1:1234/v1" style="margin-top: 4px;">
-          <p style="font-size:11px; color:#666; margin:4px 0 0;">ローカル（127.0.0.1 / localhost / ::1）で稼働しているOpenAI互換APIのURLを指定してください。</p>
+          <input type="text" id="apiUrl" value="http://127.0.0.1:1234/v1" aria-describedby="apiUrlHelp apiUrlError" style="margin-top: 4px;">
+          <p id="apiUrlHelp" style="font-size:11px; color:#666; margin:4px 0 0;">ローカル（127.0.0.1 / localhost / ::1）で稼働しているOpenAI互換APIのURLを指定してください。</p>
+          <p id="apiUrlError" class="field-error" hidden>ローカルの http(s) URLを入力してください。外部ホストと認証情報付きURLは使用できません。</p>
         </div>
         <div id="offlineInfo" style="font-size:12px;color:#666;margin-top:4px;">
           内蔵辞書 + Tesseract.js OCR で動作。API不要。
@@ -187,15 +192,16 @@
     <div class="right">
       <div class="panel result" id="resultPanel">
         <h2>解析結果</h2>
-        <div class="field"><b>対象の漢字</b><div id="detectedKanji" style="font-size: 2em; font-weight: bold;">--</div></div>
+        <div class="field"><b>対象の漢字</b><div id="detectedKanji" lang="zh-CN" style="font-size: 2em; font-weight: bold;">--</div></div>
         <div class="field"><b>意味</b><div id="meaning">--</div></div>
-        <div class="field"><b>ピンイン</b><div id="pinyin">--</div></div>
-        <div class="field"><b>例文</b><div id="example">--</div></div>
+        <div class="field"><b>ピンイン</b><div id="pinyin" lang="zh-CN">--</div></div>
+        <div class="field"><b>例文</b><div id="example" lang="zh-CN">--</div></div>
+        <div id="resultLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 
         <div class="field">
           <label for="manualKanjiInput" style="display:block;margin-bottom:6px;font-weight:bold;color:#555;">手動入力（API不要）</label>
           <div class="manual-input-row">
-            <input type="text" id="manualKanjiInput" placeholder="漢字を1文字入力" maxlength="1" style="font-size:1.5em;text-align:center;">
+            <input type="text" id="manualKanjiInput" lang="zh-CN" placeholder="漢字を1文字入力" maxlength="1" style="font-size:1.5em;text-align:center;">
             <button id="lookupBtn" class="btn primary" style="padding:8px 16px;">辞書検索</button>
           </div>
         </div>
@@ -237,7 +243,7 @@
     <footer role="presentation">© SARUTAHICO</footer>
   </div>
   <div id="messageBox" class="message-box" aria-hidden="true"></div>
-  <div id="messageLive" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
+  <div id="messageLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 
   <script>
     // ---- 設定 ----
@@ -906,10 +912,12 @@
     const eraserBtn = document.getElementById('eraserBtn');
     const clearBtn = document.getElementById('clearBtn');
     const apiUrlInput = document.getElementById('apiUrl');
+    const apiUrlErrorEl = document.getElementById('apiUrlError');
     const messageBox = document.getElementById('messageBox');
     const messageLive = document.getElementById('messageLive');
     let lastMessageText = '';
     const analysisStatusEl = document.getElementById('analysisStatus');
+    const resultLiveEl = document.getElementById('resultLive');
     const manualKanjiInput = document.getElementById('manualKanjiInput');
     const lookupBtn = document.getElementById('lookupBtn');
     const offlineModeBtn = document.getElementById('offlineModeBtn');
@@ -961,6 +969,7 @@
     let tesseractInitPromise = null;
     let tesseractOptions = null;
     let progressHideTimer = null;
+    let lastProgressAnnouncement = -1;
     let piperSession = null;
     let piperLoading = null;
     const piperFetchControllers = new Set();
@@ -975,8 +984,15 @@
     let fallbackVoiceRestore = null;
     let analysisGeneration = 0;
     let analysisActive = false;
+    let analysisController = null;
+    let ocrQueue = Promise.resolve();
+    let ocrJobCounter = 0;
     function cancelAnalysis() {
       analysisGeneration++;
+      if (analysisController) {
+        analysisController.abort();
+        analysisController = null;
+      }
       if (!analysisActive) return;
       analysisActive = false;
       analyzeBtn.removeAttribute('aria-disabled');
@@ -991,18 +1007,39 @@
     }
 
     // ---- モード切り替え ----
+    // Examples are "Chinese / Japanese". Keep the exact text but tag each
+    // half so assistive technology uses the right voice for both languages.
+    function setExampleText(text) {
+      const value = text || '--';
+      const parts = value.match(/^([\s\S]*?)(\s*\/\s*)([\s\S]*)$/);
+      if (!parts) {
+        exampleEl.textContent = value;
+        return;
+      }
+      exampleEl.textContent = '';
+      const chinese = document.createElement('span');
+      chinese.lang = 'zh-CN';
+      chinese.textContent = parts[1];
+      const japanese = document.createElement('span');
+      japanese.lang = 'ja';
+      japanese.textContent = parts[3];
+      exampleEl.append(chinese, document.createTextNode(parts[2]), japanese);
+    }
     function clearResult() {
       stopSpeaking();
       detectedKanjiEl.textContent = '--';
       meaningEl.textContent = '--';
       pinyinEl.textContent = '--';
-      exampleEl.textContent = '--';
+      setExampleText('--');
+      resultLiveEl._token = (resultLiveEl._token || 0) + 1;
+      resultLiveEl.textContent = '';
       currentKanjiText = '';
       currentExampleText = '';
       playPinyinBtn.disabled = true;
       playExampleBtn.disabled = true;
     }
     function setMode(apiMode) {
+      const wasAnalyzing = analysisActive;
       cancelAnalysis();
       useApiMode = apiMode;
       offlineModeBtn.classList.toggle('active', !apiMode);
@@ -1016,6 +1053,8 @@
       ocrBadge.textContent = apiMode ? 'Qwen-VL' : 'Tesseract.js';
       ocrBadge.style.background = apiMode ? 'var(--purple)' : 'var(--gold)';
       clearResult();
+      analysisStatusEl.textContent = (wasAnalyzing ? '解析をキャンセルし、' : '') +
+        (apiMode ? 'API連携モードに切り替えました。' : 'API不要モードに切り替えました。');
     }
     offlineModeBtn.addEventListener('click', () => setMode(false));
     apiModeBtn.addEventListener('click', () => setMode(true));
@@ -1132,11 +1171,14 @@
 
     function setKeyPen(down) {
       if (down === keyDrawing) return;
+      // Pointer and keyboard strokes must stay mutually exclusive in both
+      // directions, otherwise undo can pop an overlapping snapshot.
+      if (down && drawing) stopDrawing();
       keyDrawing = down;
       if (down) {
         saveUndoState();
         drawLine(keyCursor.x, keyCursor.y, keyCursor.x, keyCursor.y);
-        kbDrawStatus.textContent = '描画を開始しました';
+        kbDrawStatus.textContent = `描画を開始しました。位置 ${Math.round(keyCursor.x)}, ${Math.round(keyCursor.y)}`;
       } else {
         kbDrawStatus.textContent = '描画を終了しました';
       }
@@ -1191,6 +1233,8 @@
         };
         if (keyDrawing) drawLine(keyCursor.x, keyCursor.y, next.x, next.y);
         keyCursor = next;
+        kbDrawStatus.textContent = `位置 ${Math.round(next.x)}, ${Math.round(next.y)}` +
+          (keyDrawing ? '、描画中' : '');
       }
       updateKeyCursor();
     });
@@ -1259,7 +1303,7 @@
       cancelAnalysis();
       clearResult();
       if (!file.type.startsWith('image/')) {
-        showMessage('画像ファイルを選択してください。');
+        showMessage('画像ファイルを選択してください。', 3000, true);
         return;
       }
       const img = new Image();
@@ -1272,27 +1316,32 @@
         const x = (canvas.width - w) / 2;
         const y = (canvas.height - h) / 2;
         ctx.drawImage(img, x, y, w, h);
+        showMessage('画像を読み込みました。「漢字分析」を押してください。');
       };
-      img.onerror = () => showMessage('画像の読み込みに失敗しました。');
+      img.onerror = () => showMessage('画像の読み込みに失敗しました。', 3000, true);
       reader.onload = (e) => { img.src = e.target.result; };
-      reader.onerror = () => showMessage('ファイルの読み込みに失敗しました。');
+      reader.onerror = () => showMessage('ファイルの読み込みに失敗しました。', 3000, true);
       reader.readAsDataURL(file);
       ev.target.value = '';
     });
 
     // ---- メッセージ表示 ----
-    function showMessage(text, duration = 3000) {
+    function showMessage(text, duration = 3000, urgent = false) {
       clearTimeout(messageBox._timer);
       messageBox._timer = null;
       lastMessageText = text;
       const token = (messageBox._token || 0) + 1;
       messageBox._token = token;
-      // The visible box is aria-hidden; a dedicated live node announces the
-      // same text. Resetting that node in a frame re-announces repeats without
-      // blanking the visible message or doubling alert semantics.
+      // Errors interrupt; progress and success wait for a pause. The visible
+      // box stays aria-hidden so only the dedicated live node is announced.
+      // Clear before changing politeness so the previous text is never
+      // re-announced under the new aria-live value.
+      // Resetting the node in a frame re-announces repeats without blanking
+      // the visible message or doubling alert semantics.
       messageBox.textContent = text;
       messageBox.classList.add('visible');
       messageLive.textContent = '';
+      messageLive.setAttribute('aria-live', urgent ? 'assertive' : 'polite');
       requestAnimationFrame(() => {
         if (messageBox._token === token) messageLive.textContent = text;
       });
@@ -1312,7 +1361,10 @@
       clearTimeout(progressHideTimer);
       progressHideTimer = null;
       progressBar.style.display = show ? 'block' : 'none';
-      if (!show) progressFill.style.width = '0%';
+      if (!show) {
+        progressFill.style.width = '0%';
+        lastProgressAnnouncement = -1;
+      }
     }
     function scheduleProgressHide(delay = 1000) {
       clearTimeout(progressHideTimer);
@@ -1321,9 +1373,17 @@
         showProgress(false);
       }, delay);
     }
-    function setProgress(pct) {
+    function setProgress(pct, announce = true) {
       progressFill.style.width = pct + '%';
       progressBar.setAttribute('aria-valuenow', String(pct));
+      // The toast disappears after 15 s; keep a polite, throttled percentage
+      // in the persistent analysis status instead. Worker initialization is a
+      // transient 100% milestone: do not announce it before OCR starts.
+      if (announce && progressBar.style.display !== 'none' &&
+          (pct === 0 || pct === 100 || pct - lastProgressAnnouncement >= 10)) {
+        lastProgressAnnouncement = pct;
+        analysisStatusEl.textContent = `解析中です（${pct}%）`;
+      }
     }
 
     // ---- ローカル同梱アセットを優先し、無ければ CDN を使う ----
@@ -1485,26 +1545,54 @@
     }
 
     // ---- API呼び出し ----
+    function setApiUrlError(invalid) {
+      apiUrlErrorEl.hidden = !invalid;
+      apiUrlInput.setAttribute('aria-invalid', String(invalid));
+      if (invalid) apiUrlInput.focus();
+    }
     function getApiUrl() {
       const raw = apiUrlInput.value.trim().replace(/\/$/, '');
-      if (!raw) return '';
       try {
+        if (!raw) throw new Error('empty');
         const url = new URL(raw);
-        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
-        if (url.username || url.password) return '';
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('scheme');
+        if (url.username || url.password) throw new Error('credentials');
         const host = url.hostname.toLowerCase();
         const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
-        if (!loopback) return '';
+        if (!loopback) throw new Error('host');
+        setApiUrlError(false);
         return url.toString().replace(/\/$/, '');
       } catch (e) {
+        setApiUrlError(true);
         return '';
       }
+    }
+    function createAnalysisFetchController() {
+      // The 15 s deadline and an explicit cancel are independent abort sources.
+      const controller = new AbortController();
+      const outer = analysisController;
+      let canceledByAnalysis = false;
+      const relayAbort = () => {
+        canceledByAnalysis = true;
+        controller.abort();
+      };
+      if (outer) {
+        if (outer.signal.aborted) relayAbort();
+        else outer.signal.addEventListener('abort', relayAbort, { once: true });
+      }
+      return {
+        controller,
+        isCanceled: () => canceledByAnalysis,
+        cleanup: () => {
+          if (outer) outer.signal.removeEventListener('abort', relayAbort);
+        }
+      };
     }
 
     async function extractKanjiFromImage(imageDataUrl) {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。');
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。', 5000, true);
         return null;
       }
       const prompt = "画像に写っている中国語の漢字を1文字だけ抽出して、その文字だけを返してください。他のテキストは一切含めないでください。";
@@ -1521,15 +1609,15 @@
         temperature: 0.1,
         max_tokens: 10
       };
+      const fetchHandle = createAnalysisFetchController();
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => fetchHandle.controller.abort(), API_TIMEOUT_MS);
         try {
           const res = await fetch(`${apiUrl}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
-            signal: controller.signal
+            signal: fetchHandle.controller.signal
           });
           if (!res.ok) {
             await res.text();
@@ -1542,10 +1630,13 @@
         } finally {
           // Keep the deadline active while the response body is consumed too.
           clearTimeout(timeoutId);
+          fetchHandle.cleanup();
         }
       } catch (err) {
-        console.error('API Error:', err);
-        showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーの起動とCORS許可を確認してください。');
+        if (!fetchHandle.isCanceled()) {
+          console.error('API Error:', err);
+          showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーの起動とCORS許可を確認してください。', 5000, true);
+        }
         return null;
       }
     }
@@ -1553,7 +1644,7 @@
     async function generateDetailsForKanji(kanji) {
       const apiUrl = getApiUrl();
       if (!apiUrl) {
-        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。');
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。', 5000, true);
         return null;
       }
       const prompt = `あなたは中国語漢字の専門家です。以下の漢字について、JSON形式で情報を返してください。出力は厳密にこのフォーマットに従ってください。
@@ -1568,15 +1659,15 @@
 - 例文は短く、漢字の使用が明確なものにしてください。
 - 中国語例文とその日本語訳の文法がそれぞれ必ず正しくなるようにしてください。
 - JSON以外の余計なテキストは絶対に出力しないでください。`;
+      const fetchHandle = createAnalysisFetchController();
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        const timeoutId = setTimeout(() => fetchHandle.controller.abort(), API_TIMEOUT_MS);
         try {
           const res = await fetch(`${apiUrl}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ model: GPT_OSS_MODEL, messages: [{ role: 'user', content: prompt }] }),
-            signal: controller.signal
+            signal: fetchHandle.controller.signal
           });
           if (!res.ok) { await res.text(); throw new Error(`API error: ${res.status}`); }
           const data = await res.json();
@@ -1595,10 +1686,13 @@
         } finally {
           // Keep the deadline active while the response body is consumed too.
           clearTimeout(timeoutId);
+          fetchHandle.cleanup();
         }
       } catch (err) {
-        console.error('API Error:', err);
-        showMessage('意味・例文の生成に失敗しました。モデルの応答とCORS許可を確認してください。');
+        if (!fetchHandle.isCanceled()) {
+          console.error('API Error:', err);
+          showMessage('意味・例文の生成に失敗しました。モデルの応答とCORS許可を確認してください。', 5000, true);
+        }
         return null;
       }
     }
@@ -1634,14 +1728,14 @@
           }, localOptions);
           setProgress(30);
           tesseractWorker = await Tesseract.createWorker('chi_sim', 1, tesseractOptions);
-          setProgress(100);
+          setProgress(100, false);
           tesseractReady = true;
           if (manageProgress) showProgress(false);
           return true;
         } catch (err) {
           console.error('Tesseract init error:', err && err.message ? err.message : err);
           if (manageProgress) showProgress(false);
-          showMessage('OCRエンジンの読み込みに失敗しました。' + (err && err.message ? ' ' + err.message : ''), 0);
+          showMessage('OCRエンジンの読み込みに失敗しました。手動入力をお使いください。', 0, true);
           return false;
         }
       })();
@@ -1664,25 +1758,37 @@
         { psm: 8, label: 'single word' },     // Single word
         { psm: 13, label: 'raw line' },       // Raw line (no OSD)
       ];
-      let bestResult = '';
-      let bestConfidence = -1; // confidence 0 の候補も採用するため
-      for (const mode of modes) {
-        try {
-          await tesseractWorker.setParameters({ tessedit_pageseg_mode: mode.psm });
-          const { data } = await tesseractWorker.recognize(imageDataUrl);
-          const text = (data.text || '').trim();
-          const conf = data.confidence || 0;
-          const match = text.match(/[\u4e00-\u9fff]/);
-          if (match && conf > bestConfidence) {
-            bestResult = match[0];
-            bestConfidence = conf;
+      // Tesseract.js keys pending calls by `${action}-${id}`. Without explicit
+      // IDs, a cancelled run and its replacement both use `undefined` and the
+      // second promise can be resolved by the first worker response. Serialize
+      // the calls and give every one a unique ID.
+      const task = async () => {
+        let bestResult = '';
+        let bestConfidence = -1; // confidence 0 の候補も採用するため
+        for (const mode of modes) {
+          const jobId = `ocr-${++ocrJobCounter}`;
+          try {
+            await tesseractWorker.setParameters(
+              { tessedit_pageseg_mode: mode.psm }, `${jobId}-params`);
+            const { data } = await tesseractWorker.recognize(
+              imageDataUrl, {}, undefined, `${jobId}-recognize`);
+            const text = (data.text || '').trim();
+            const conf = data.confidence || 0;
+            const match = text.match(/[\u4e00-\u9fff]/);
+            if (match && conf > bestConfidence) {
+              bestResult = match[0];
+              bestConfidence = conf;
+            }
+            if (bestConfidence > 80) break; // Good enough
+          } catch (e) {
+            console.warn(`PSM ${mode.psm} failed:`, e);
           }
-          if (bestConfidence > 80) break; // Good enough
-        } catch (e) {
-          console.warn(`PSM ${mode.psm} failed:`, e);
         }
-      }
-      return bestResult;
+        return bestResult;
+      };
+      const result = ocrQueue.then(task, task);
+      ocrQueue = result.catch(() => {});
+      return result;
     }
 
     // ---- 音声合成（Piper ニューラルTTS + SpeechSynthesis フォールバック） ----
@@ -1857,7 +1963,7 @@
         if (token === playbackToken && typeof onFinish === 'function') onFinish();
       };
       if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance === 'undefined') {
-        showMessage('このブラウザは音声合成に対応していません。');
+        showMessage('このブラウザは音声合成に対応していません。', 3000, true);
         endPlaybackUI(token);
         setTtsStatus('');
         finish();
@@ -1885,7 +1991,7 @@
         console.error('Speech error:', e);
         endPlaybackUI(token);
         setTtsStatus('');
-        showMessage('音声の再生に失敗しました。');
+        showMessage('音声の再生に失敗しました。', 3000, true);
         finish();
       };
       if (!beginPlaybackUI(btn, token)) return;
@@ -2045,13 +2151,15 @@
       if (piperLoading && piperLoading.voiceId === voiceId) return piperLoading.promise;
 
       // A preparation promise can be joined by a new request after a stop.
-      // Only show its progress while this voice is still the active request.
-      // Remote model downloads get both a deadline and an abort handle so a
-      // stalled fallback cannot keep playback preparation pending forever.
+      // Bind it to the playback token so a superseded preparation cannot
+      // overwrite status or the active session. Remote downloads also get a
+      // deadline and an abort handle for stalled fallbacks.
+      const requestToken = playbackToken;
       const fetchController = new AbortController();
       const fetchTimeoutId = setTimeout(() => fetchController.abort(), PIPER_FETCH_TIMEOUT_MS);
       piperFetchControllers.add(fetchController);
       const setPrepStatus = (text) => {
+        if (requestToken !== playbackToken) return;
         if (!(activeButton && voiceSelect.value === voiceId)) return;
         const match = text.match(/(\d+)%/);
         if (match) {
@@ -2141,6 +2249,12 @@
           if (dropped.length) console.warn('[piper] Unknown pinyin symbols omitted:', dropped);
           return { phonemes };
         };
+        if (requestToken !== playbackToken) {
+          // A newer playback started while this model was loading. Do not let
+          // the stale session become active or keep ORT native memory alive.
+          try { if (typeof session.release === 'function') session.release(); } catch (e) { /* ignore */ }
+          throw new Error('Superseded Piper preparation');
+        }
         piperSession = { voiceId, session, config, phonemize };
         setPrepStatus(`Piper（${voice.label}）の準備ができました`);
         return piperSession;
@@ -2352,7 +2466,7 @@
       detectedKanjiEl.textContent = result.kanji || '--';
       meaningEl.textContent = result.meaning || '--';
       pinyinEl.textContent = result.pinyin || '--';
-      exampleEl.textContent = result.example || '--';
+      setExampleText(result.example);
       currentKanjiText = (result.kanji && result.kanji !== '--') ? result.kanji.charAt(0) : '';
       let exampleChinese = result.example || '';
       if (exampleChinese.includes('/')) {
@@ -2362,6 +2476,18 @@
       currentExampleText = (exampleChinese && exampleChinese !== '--' && !unavailableExample) ? exampleChinese : '';
       playPinyinBtn.disabled = !currentKanjiText;
       playExampleBtn.disabled = !currentExampleText;
+      // Manual lookup and OCR both update the DOM silently; announce the same
+      // result as a polite summary for screen-reader users.
+      const parts = [`漢字: ${detectedKanjiEl.textContent}`];
+      if (pinyinEl.textContent && pinyinEl.textContent !== '--') parts.push(`ピンイン: ${pinyinEl.textContent}`);
+      if (meaningEl.textContent && meaningEl.textContent !== '--') parts.push(`意味: ${meaningEl.textContent}`);
+      if (exampleEl.textContent && exampleEl.textContent !== '--') parts.push(`例文: ${exampleEl.textContent}`);
+      const token = (resultLiveEl._token || 0) + 1;
+      resultLiveEl._token = token;
+      resultLiveEl.textContent = '';
+      requestAnimationFrame(() => {
+        if (resultLiveEl._token === token) resultLiveEl.textContent = parts.join('。') + '。';
+      });
     }
 
     lookupBtn.addEventListener('click', () => {
@@ -2395,6 +2521,7 @@
       const focusBeforeAnalysis = document.activeElement;
       const generation = ++analysisGeneration;
       analysisActive = true;
+      analysisController = new AbortController();
       let completed = false;
       try {
         analyzeBtn.setAttribute('aria-disabled', 'true');
@@ -2406,7 +2533,7 @@
         detectedKanjiEl.textContent = '--';
         meaningEl.textContent = '--';
         pinyinEl.textContent = '--';
-        exampleEl.textContent = '--';
+        setExampleText('--');
         currentKanjiText = '';
         currentExampleText = '';
         playPinyinBtn.disabled = true;
@@ -2475,7 +2602,7 @@
             if (generation !== analysisGeneration) return;
             console.error('OCR Error:', ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
             showProgress(false);
-            showMessage('OCR認識に失敗しました。手動入力をお使いください。' + (ocrErr && ocrErr.message ? ' ' + ocrErr.message : ''), 0);
+            showMessage('OCR認識に失敗しました。手動入力をお使いください。', 0, true);
             meaningEl.textContent = 'API不要モード: 下の入力欄に漢字を入力して検索してください。';
           }
         }
@@ -2483,10 +2610,11 @@
       } catch (err) {
         if (generation !== analysisGeneration) return;
         console.error('Analysis Error:', err);
-        showMessage('解析中に予期せぬエラーが発生しました。');
+        showMessage('解析中に予期せぬエラーが発生しました。', 3000, true);
       } finally {
         if (generation !== analysisGeneration) return;
         analysisActive = false;
+        analysisController = null;
         analyzeBtn.removeAttribute('aria-disabled');
         analyzeBtn.textContent = '漢字分析';
         resultPanel.removeAttribute('aria-busy');

@@ -7,9 +7,9 @@
 
 ## 現在の構成
 - `main.html`: 唯一のアプリ本体（単一 HTML ファイル、ビルド不要）。
-- `examples/aivisspeech_auto_demo.html`: AivisSpeech API の参考デモ（API モードの参考のみ）。
+- `examples/aivisspeech_auto_demo.html.txt`: AivisSpeech API の参考デモ（API モードの参考のみ、Pages で実行されないよう `.txt` 化）。
 - `sarutahico_logo.png`: ヘッダーロゴ。
-- `backups/main_before_piper_20261127.html`: Piper 導入前のバックアップ。
+- `backups/main_before_piper_20261127.html.txt`: Piper 導入前のバックアップ。
 - `vendor/`: OCR / Piper / ONNX Runtime の同梱アセット。`tools/fetch-assets.py` で再取得可能。
 - `tools/serve.py`: `.mjs` を正しい MIME で配信する開発用ローカルサーバー。
 - `tools/fetch-assets.py`: `vendor/` のアセットを取得・サイズ検証するスクリプト。
@@ -282,6 +282,48 @@
   実 Pages の axe-core も Firefox / WebKit で `violations: []`、
   `incomplete: []`。WebKit ヘッドレスには `speechSynthesis` が無いため
   ブラウザ音声フォールバックは未検証のまま。
+
+## 2026-11-28 第2次残存対応の知見
+- Pages は branch-root なので `backups/` / `examples/` も公開される。旧 HTML を
+  `.html.txt` へリネームし、実行可能なアプリとして配信されないようにした。
+  参考デモも同様に `.txt` 化する。ロールバック時はローカルで拡張子を戻す。
+- 結果の漢字・ピンイン・意味・例文と手動入力には `lang="zh-CN"` を設定し、
+  スクリーンリーダーが中国語として読み上げるようにした。結果要約は
+  `#resultLive`（`aria-live="polite"`）で通知し、画面上の通知は通常 `polite`、
+  エラー時のみ `assertive` に切り替える（文言は `lastMessageText` に残す）。
+- `@media (prefers-reduced-motion: reduce)` でトランジションとアニメーションを
+  無効化する。検証では `prefers-reduced-motion` のエミュレーションで確認した。
+- API URL の検証失敗は `aria-invalid` と `#apiUrlError` のフィールドエラーで
+  表示する。`aria-describedby` にヘルプとエラーを両方含める。
+- 解析中にモード切替などでキャンセルすると `analysisController.abort()` で
+  実行中の fetch も中断する。fetch の controller は `createAnalysisFetchController()`
+  で generation と紐付け、古い generation の catch/finally は捨てる。
+- Tesseract.js の `setParameters()` / `recognize()` には `ocrJobCounter` の
+  ID を渡し、`ocrQueue` で 1 ジョブずつ直列化する。進捗通知はスロットルし、
+  cancel 後の古い job の進捗で上書きしない。
+- `getPiperSession()` は `requestToken = playbackToken` を持ち、準備完了時に
+  古い token なら `session.release()` して `Superseded Piper preparation` で
+  失敗させる。古い準備の完了が audio 要素を作ったり、ブラウザ音声へ
+  フォールバックしたりしないようにする。
+- pointer 描画中にキーボード描画を開始するときは `setKeyPen(true)` が
+  `stopDrawing()` を呼び、両方の undo スタックが食い違わないようにする。
+- `tools/fetch-assets.py` は `loadScript()` / `resolveAsset()` の通常呼び出し
+  も走査して SRI を確認する。`{ requireSri: false }` は音声モデルだけに
+  限定し、ダウンロード時は `Content-Length` と実書き込み bytes が期待値を
+  超えたら即失敗、最終サイズも常に一致を要求する。
+- 独立レビューで見つかった低優先度の問題も修正した。例文は「中国語 / 日本語」
+  なので `setExampleText()` で textContent を変えずに両方を `<span lang>` へ分け、
+  日本語側は `lang="ja"` にする。OCR 初期化の `setProgress(100, false)` は
+  進捗バーの表示は維持しつつ polite 状態へは通知しない（OCR 後の 90% が
+  スロットルで捨てられないようにするため）。`showMessage()` は `aria-live`
+  を切り替える前に live ノードを空にし、`clearResult()` は `#resultLive` の
+  トークンを進めて古い要約を a11y tree から消す。
+- 検証済み: 残存 round2 ブラウザテスト `RC=0`（17 チェックすべて OK:
+  `lang`、二言語例文、結果要約とクリア、polite/assertive 切替、100% 通知抑制、
+  reduced motion、フィールドエラー、fetch abort、OCR ID 直列化、古い Piper
+  セッションの release、外部通信なし）、axe-core `violations: []` /
+  `incomplete: []`、RBNF 8,178 ケース + ギャップ 86 ケース `fails 0`、
+  数値ファズ 20,000 ケース `FAILURES 0`。
 
 ## 検証コマンド（Windows bash）
 ```bash

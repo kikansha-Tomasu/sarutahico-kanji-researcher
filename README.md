@@ -24,7 +24,7 @@ python tools/serve.py
 
 このリポジトリでは Pages を有効化済みで、公開 URL は `https://kikansha-tomasu.github.io/sarutahico-kanji-researcher/` です。fork などで有効化されていない場合は、上記の Settings 操作が必要です。
 
-GitHub Pages では開発サーバーの CSP・allowlist・MIME 指定は使えません。MIME は Pages 側の既定値（`.mjs` は `text/javascript`、`.wasm` は `application/wasm`）に依存します。Pages サイトは公開され、`backups/` / `tools/` / `AGENTS.md` を含むリポジトリ全体が配信対象です。秘密情報は置かないでください。API 連携モードは引き続き loopback のみを受け付けるため、Pages 版では API 不要モードでの利用を想定しています。再設定や fork では GitHub の設定操作が必要で、push だけでは公開されません。
+GitHub Pages では開発サーバーの CSP・allowlist・MIME 指定は使えません。MIME は Pages 側の既定値（`.mjs` は `text/javascript`、`.wasm` は `application/wasm`）に依存します。Pages サイトは公開され、`backups/` / `tools/` / `AGENTS.md` を含むリポジトリ全体が配信対象です。秘密情報は置かないでください。旧バックアップと参考デモの HTML は `.html.txt` にリネームしており、Pages では実行可能な HTML として配信されません。API 連携モードは引き続き loopback のみを受け付けるため、Pages 版では API 不要モードでの利用を想定しています。再設定や fork では GitHub の設定操作が必要で、push だけでは公開されません。
 
 ## できること
 
@@ -66,7 +66,7 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - 再生中のボタン切替、準備中の停止、上流準拠のピンイン音素化
   （零声母 `Ø`、軽声 `0`→`5`、ü 韻母のみ `v` 化、グループ末尾のみ pad）
   （`九` → `j,iu,3`、`右` → `y,ou,4`、`居` → `j,u,1`）
-- 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`、`1,000` → `一千`）と上流 RBNF 8,178 ケース・上位ギャップ集中ケース（86 ケース）との一致
+- 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`、`1,000` → `一千`）と上流 RBNF 8,178 ケース・上位ギャップ集中ケース（86 ケース）との一致、ランダム 20,000 ケースのファズテスト（`FAILURES 0`）
 - 20 桁超の桁グループ読み（`123456789012345678901` → `一垓二千三百四十五京…`）で単位が欠落しないこと
 - 年の桁読み（`2026年9月` → `二〇二六年九月`、`2026年2027年` → `二〇二六年二〇二七年`、5 桁以上は一般数値）
 - CDN フォールバック時の SRI 属性付与、不正ハッシュの拒否、二次アセット欠落時の fail-closed、二次アセットのローカルパス強制
@@ -74,7 +74,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - 外部通信を遮断した状態での OCR / Piper 動作
 - Piper の句読点クラスタ（`。 ` / `！！` / `……`）保持と文ごとの推論分割
 - 解析の競合制御（実行中にモード切替で古い OCR 結果を破棄、空キャンバスで完了状態を通知しない）
-- API URL の loopback 制限（外部ホスト・埋め込み認証情報を拒否）と fetch の中断シグナル
+- API URL の loopback 制限（外部ホスト・埋め込み認証情報を拒否）と fetch の中断シグナル（モード切替時に実行中 fetch を abort）
+- 残存レビュー項目: 結果ノードの `lang="zh-CN"`（二言語例文は中国語/日本語を個別タグ化）、結果要約の polite 通知とクリア、通常/緊急メッセージの `aria-live` 切替、`prefers-reduced-motion`、API URL のフィールド単位エラー、途中経過の過剰通知抑止、OCR ジョブ ID の一意性と直列化、古い Piper 準備セッションの解放と結果破棄
 - 開発サーバーの allowlist（`/` と `/index.html` が 200、`.git/config` / `backups/` / `tools/` / `README.md` が 404）
 - GitHub Pages 相当のサブパス配信（ルートのリダイレクト、OCR / Piper、SRI、外部通信ゼロ）
 - 実 GitHub Pages の live 配信（ルートのリダイレクト、主要／二次アセットと音声モデルの 200、SRI、OCR / Piper、外部通信ゼロ）を Edge / Firefox / WebKit で確認
@@ -95,8 +96,8 @@ THIRD_PARTY_NOTICES.md       同梱アセットのライセンス情報
 tools/serve.py               MIME 正しい開発用ローカルサーバー
 tools/fetch-assets.py        vendor/ の取得・検証
 vendor/                      OCR / Piper / ONNX Runtime / pinyin-pro 同梱アセット
-examples/                    AivisSpeech API の参考デモ
-backups/                     変更前のバックアップ
+examples/                    AivisSpeech API の参考デモ（.html.txt、実行不可）
+backups/                     変更前のバックアップ（旧 HTML は .html.txt）
 sarutahico_logo.png          ヘッダーロゴ
 ```
 
@@ -110,5 +111,5 @@ sarutahico_logo.png          ヘッダーロゴ
 - 初回のモデル読み込みには数秒〜十数秒かかります（同梱アセットがある場合はダウンロードは発生しません）。
 - 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値と、上流 `piper1-gpl` の音素/ID 系列との一致までを検証しています。
 - `vendor/piper/.../zh_CN-chaowen-medium.onnx` は約 60 MB で、GitHub の推奨上限 50 MB を超えるため警告が表示されます。100 MB の硬制限内で push 済みですが、Git LFS 移行は外部ストレージ設定を伴うため未実施です。
-- `backups/` は過去状態のスナップショットです。旧ライセンス不明モデルや旧 phonemizer への参照を含みますが、実行時には読み込まれません（[backups/README.md](backups/README.md) 参照）。
+- `backups/` は過去状態のスナップショットです。旧ライセンス不明モデルや旧 phonemizer への参照を含みますが、実行時には読み込まれません（[backups/README.md](backups/README.md) 参照）。Pages では `.html.txt` として配信されるため、ブラウザでアプリとして実行することもできません。
 - 上流 RBNF は 19 桁以上で `NoRuleForNumberError`、17 桁の一部でも再帰上限に達するため、その範囲の一致は検証対象外です。アプリ側は `京`＝10^16 までを上流と照合済みで、それより大きい値は古典的な大数単位（`垓`＝10^20 〜 `极`＝10^48）で欠落なく読み上げますが、この拡張部分は上流 RBNF では検証できません。名前の付いた単位が無い 10^52 以上は桁読みへフォールバックします。

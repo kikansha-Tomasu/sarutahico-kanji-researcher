@@ -207,9 +207,18 @@ def _split_top_level(text: str) -> list[str]:
 
 
 def _call_arguments(html: str, name: str) -> list[list[str]]:
-    """Collect argument lists of `await name(...)` calls in main.html."""
+    """Collect argument lists of every `name(...)` call in main.html.
+
+    Both `await name(...)` and ordinary calls are covered; otherwise a harmless
+    refactor could escape the build-time check. Function declarations are not
+    calls and are skipped.
+    """
     calls: list[list[str]] = []
-    for match in re.finditer(r"await\s+" + re.escape(name) + r"\(", html):
+    pattern = re.compile(r"(?<![\w.$])(?:await\s+)?" + re.escape(name) + r"\s*\(")
+    for match in pattern.finditer(html):
+        prefix = html[max(0, match.start() - 40):match.start()]
+        if re.search(r"\bfunction\s+$", prefix):
+            continue
         start = match.end()
         depth = 1
         quote = ""
@@ -250,32 +259,46 @@ def check_asset_call_sites(html: str) -> list[str]:
         expr = expr.strip()
         if expr in constants:
             return constants[expr]
-        match = re.fullmatch(r"(\w+)\s*\+\s*'([^']+)'", expr)
+        if len(expr) >= 2 and expr[0] in "'\"`" and expr[-1] == expr[0]:
+            inner = expr[1:-1]
+            if "${" not in inner:
+                return inner
+            # Template literals are used for per-voice Piper URLs. Expand the
+            # known base constants and leave runtime placeholders in place.
+            for name, value in constants.items():
+                inner = inner.replace("${" + name + "}", value)
+            return inner
+        match = re.fullmatch(r"(\w+)\s*\+\s*(['\"])(.*?)\2", expr)
         if match and match.group(1) in constants:
-            return constants[match.group(1)] + match.group(2)
+            return constants[match.group(1)] + match.group(3)
         return expr
 
     declared = set(re.findall(r"^\s*\[([^\]]+)\]\s*:\s*'sha256-", html, re.M))
     declared = {resolve(url) for url in declared}
     failures: list[str] = []
     # A literal remote loadScript() would bypass resolveAsset() entirely.
-    for match in re.finditer(r"loadScript\(\s*'([^']+)'", html):
-        url = resolve(match.group(1))
-        if url not in declared:
+    for args in _call_arguments(html, "loadScript"):
+        if not args:
+            continue
+        url = resolve(args[0])
+        if url.startswith(("http://", "https://")) and url not in declared:
             failures.append(f"loadScript literal URL has no CDN_SRI entry: {url}")
     calls = _call_arguments(html, "resolveAsset")
     if not calls:
-        return ["no await resolveAsset(...) call found in main.html"]
+        return ["no resolveAsset(...) call found in main.html"]
+    piper_base = constants.get("PIPER_VOICES_URL", "")
     for args in calls:
         local = args[0] if args else ""
         remote = args[1] if len(args) > 1 else ""
+        url = resolve(remote)
         opts = re.sub(r"//[^\n]*", "", args[2]) if len(args) > 2 else ""
         opts = re.sub(r"\s+", "", opts)
         if opts == "{requireSri:false}":
-            if "vendor/piper/models/" not in local:
-                failures.append(f"unexpected SRI opt-out in resolveAsset: {local}")
+            if ("vendor/piper/models/" not in local
+                    or not piper_base or not url.startswith(piper_base + "/")):
+                failures.append(
+                    f"unexpected SRI opt-out in resolveAsset: {local} -> {url}")
             continue
-        url = resolve(remote)
         if not url or url not in declared:
             failures.append(f"resolveAsset remote URL has no CDN_SRI entry: {remote} -> {url}")
     return failures
@@ -348,13 +371,25 @@ def main() -> int:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "sarutahico-asset-fetch/1.0"})
             with urllib.request.urlopen(req, timeout=120) as res, open(tmp, "wb") as out:
+                # A corrupted or hostile response must not fill the disk before
+                # the size check below runs. Reject an oversized body as soon
+                # as it is announced, and stop writing after one extra byte.
+                declared_size = res.headers.get("Content-Length")
+                if declared_size and declared_size.isdigit() and int(declared_size) > expected:
+                    raise RuntimeError(
+                        f"size mismatch: expected {expected}, announced {declared_size}")
+                written = 0
                 while True:
                     chunk = res.read(1024 * 1024)
                     if not chunk:
                         break
+                    written += len(chunk)
+                    if written > expected:
+                        raise RuntimeError(
+                            f"size mismatch: expected {expected}, got at least {written}")
                     out.write(chunk)
             size = os.path.getsize(tmp)
-            if expected and size != expected:
+            if size != expected:
                 raise RuntimeError(f"size mismatch: expected {expected}, got {size}")
             digest = sha256(tmp)
             if digest != SHA256[rel]:
