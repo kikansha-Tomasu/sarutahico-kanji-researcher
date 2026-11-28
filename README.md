@@ -11,7 +11,7 @@ python tools/serve.py
 
 ブラウザで <http://127.0.0.1:8123/main.html> を開いてください。
 
-開発サーバーはアプリに必要なファイルだけを配信します（`/vendor/`、`/examples/`、`/main.html`、`/sarutahico_logo.png`）。`.git/` や `backups/`、`tools/` は配信されません。`--bind 0.0.0.0` で起動する場合も同様です。
+開発サーバーはアプリに必要なファイルだけを配信します（`/vendor/`、`/examples/`、`/main.html`、`/sarutahico_logo.png`）。`.git/` や `backups/`、`tools/` は配信されません。`--bind 0.0.0.0` で起動する場合も同様です。CSP ヘッダーも付与します（単一 HTML のインラインスクリプト、Tesseract/Piper の blob URL、SRI 付き CDN フォールバック用の `https://cdn.jsdelivr.net` を許可し、接続先を self・HTTP(S) に制限します）。API URL 自体はアプリ側で loopback のみに制限されます。
 
 `file://` での直接開きは、Cache API と ES モジュールの制限により推奨しません。必ず上記ローカルサーバー経由で利用してください。
 
@@ -37,7 +37,7 @@ python tools/serve.py
 python tools/fetch-assets.py
 ```
 
-主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js`）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。CDN 読み込みには SRI（Subresource Integrity）を設定しており、改ざんされたレスポンスはブラウザが拒否します。`worker.min.js`・`core/`・`lang/`・`.wasm` などライブラリ内部で読み込まれる二次アセットは SRI を付けられないため、主要スクリプトが CDN フォールバックした場合でも**常にローカル同梱のパスを使います**。欠落時は未検証コードの実行を避けて処理を失敗させ、再取得を促すメッセージを表示します。`tools/fetch-assets.py` はサイズ・SHA-256 に加えて、`main.html` の全 SRI ハッシュ（CDN 主要スクリプトと音声モデル／設定）が同梱ファイルと一致するかも検証します。Git リポジトリ内では `vendor/` の全ファイルが追跡済みかも確認し、配布漏れを検出します。音声モデルだけが無い場合は Hugging Face から取得しますが、設定・モデルとも SHA-256 を照合し、一致しない場合は破棄してブラウザ音声へフォールバックします。検証済みのバイト列だけを Cache API に保存し、キャッシュキーにも SRI を含めるため、ハッシュ変更時に古い内容が再利用されることはありません。ローカル同梱アセットはビルド時に検証済みのためキャッシュしません（更新後に古い内容が残らないようにするためです）。古い `sarutahico-piper-v*` キャッシュは起動時に削除します。
+主要スクリプト（`tesseract.min.js` / `ort.min.js` / `pinyin-pro.js`）が無い場合は CDN へフォールバックしますが、その際は外部通信が発生します。SRI（Subresource Integrity）は同梱ファイルを読み込む場合にも適用され、実行時にバイト列の改ざんを検出します。CDN フォールバック時も SRI で改ざんされたレスポンスを拒否します。`worker.min.js`・`core/`・`lang/`・`.wasm` などライブラリ内部で読み込まれる二次アセットは SRI を付けられないため、主要スクリプトが CDN フォールバックした場合でも**常にローカル同梱のパスを使います**。欠落時は未検証コードの実行を避けて処理を失敗させ、再取得を促すメッセージを表示します。`tools/fetch-assets.py` はサイズ・SHA-256 に加えて、`main.html` の全 SRI ハッシュ（CDN 主要スクリプトと音声モデル／設定）が同梱ファイルと一致するかも検証します。Git リポジトリ内では `vendor/` の全ファイルが追跡済みかも確認し、配布漏れを検出します。音声モデルだけが無い場合は Hugging Face から取得しますが、設定・モデルとも SHA-256 を照合し、一致しない場合は破棄してブラウザ音声へフォールバックします。検証済みのバイト列だけを Cache API に保存し、キャッシュキーにも SRI を含めるため、ハッシュ変更時に古い内容が再利用されることはありません。ローカル同梱アセットはビルド時に検証済みのためキャッシュしません（更新後に古い内容が残らないようにするためです）。古い `sarutahico-piper-v*` キャッシュは起動時に削除します。
 
 同梱アセットのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。同梱の中国語音声は学習データが CC0 の `chaowen` のみで、ライセンス不明のモデルは含まれていません。
 
@@ -87,8 +87,8 @@ sarutahico_logo.png          ヘッダーロゴ
 ## 制約
 
 - 動作確認済み: Chromium 系（Edge）と Firefox で OCR・Piper 再生・axe 検証が完了しています。
-- WebKit（Safari 系エンジン）では OCR とモデル推論まで確認できましたが、検証用ヘッドレスビルドに音声出力機能が無いため再生は未検証です。実機 Safari も未検証です。
-- API 連携モードの URL は `127.0.0.1` / `localhost` / `::1` の http(s) のみ受け付けます。LAN 上の別ホストにある API は指定できません。
+- WebKit（Safari 系エンジン）では OCR・キーボード描画・モデル推論まで確認できましたが、検証用ヘッドレスビルドには `speechSynthesis` / `SpeechSynthesisUtterance` 自体が無いため、Piper 失敗時のブラウザ音声フォールバックは未検証です。実機 Safari / iOS とスクリーンリーダーも未検証です。
+- API 連携モードの URL は `127.0.0.1` / `localhost` / `::1` の http(s) のみ受け付けます。LAN 上の別ホストにある API は指定できません。ローカル API 側で `http://127.0.0.1:8123` からの CORS（`Access-Control-Allow-Origin` と `Content-Type` の許可）が必要です。
 - 初回のモデル読み込みには数秒〜十数秒かかります（同梱アセットがある場合はダウンロードは発生しません）。
 - 音声の自然さは聴取による主観評価が必要です。自動テストでは WAV の生成・再生状態・ピーク値と、上流 `piper1-gpl` の音素/ID 系列との一致までを検証しています。
 - `vendor/piper/.../zh_CN-chaowen-medium.onnx` は約 60 MB で、GitHub の推奨上限 50 MB を超えるため警告が表示されます。100 MB の硬制限内で push 済みですが、Git LFS 移行は外部ストレージ設定を伴うため未実施です。

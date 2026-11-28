@@ -11,5 +11,9 @@
   - UI・進捗表示・OCR・キャッシュ・数値展開の残存修正前の状態です。
 - `main_before_keyboard_csp_20261128.html`
   - キーボード描画、解析の競合制御、API URL 制限、開発サーバーの allowlist、Piper の文分割導入前の状態です。
+- `main_before_review_fixes_20261128.html` / `serve_before_review_fixes_20261128.py`
+  - 残存レビュー対応（ローカル SRI、OCR 初期化の共有、通知のlive region 分離、
+    Piper 取得の中断、CSP ヘッダーなど）導入前の状態です。ローカル SRI は
+    `main.html` 側、CSP は `tools/serve.py` 側の変更です。
 
-現行の実装はリポジトリ直下の `main.html` と `tools/fetch-assets.py` のみを参照してください。
+現行の実装はリポジトリ直下の `main.html` と `tools/` のみを参照してください。

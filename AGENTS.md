@@ -191,6 +191,49 @@
 - `cachedFetch()` は integrity 付き remote ダウンロードのみキャッシュする。
   ローカル同梱アセットはビルド時に検証済みで、キャッシュすると更新後に古い
   バイト列が残るためキャッシュしない（`PIPER_LOCAL_CACHE_VERSION` は削除）。
+- `resolveAsset()` はローカル同梱の主要スクリプトにも `CDN_SRI` のハッシュを
+  返し、`loadScript()` が SRI 属性を付ける。同梱ファイルは CDN 版とバイト列が
+  同じなので、追加ダウンロードなしで実行時の改ざんを検出できる。音声モデルは
+  HF フォールバック用の `PIPER_ASSET_SRI` を別途使うため対象外。
+
+## 2026-11-28 残存レビュー対応の知見
+- OCR の初回初期化は `tesseractInitPromise` で in-flight を共有する。
+  `cancelAnalysis()` は `createWorker()` を中断できないため、キャンセル直後の
+  再解析が 2 個目の worker を作らないようにする。logger は進捗バーが表示中
+  だけ更新する。OCR の `catch` も generation を確認し、キャンセル後の古い
+  失敗通知で「解析をキャンセルしました」を上書きしない。
+- pointer 描画中の Esc は `undo()` で現在の線を取り消す。Ctrl+Z も `undo()`
+  内で `drawing = false` にし、保存済み状態を pop した後に古い座標から
+  描画が再開しないようにする。
+- 手動入力の Enter は `isComposing` / `keyCode === 229` を無視する。IME の
+  確定キーで未確定文字を検索しないため。
+- 通知は `messageBox`（`aria-hidden`）と `messageLive`（`aria-live`）に分ける。
+  `role="alert"` と `aria-live` の重複を避け、同一文言の再通知でも可視側を
+  一瞬空にせずスクリーンリーダーへ再アナウンスする。正文は `lastMessageText`
+  に残す。
+- リモート Piper 取得は `PIPER_FETCH_TIMEOUT_MS`（60 秒）と
+  `piperFetchControllers` で締め切る。`stopSpeaking()` が AbortController を
+  abort し、`cachedFetch()` は cache hit / verify / stream の各待機後も
+  signal を確認する。停止操作で準備中の状態が残らないようにする。
+- Piper 失敗時のブラウザ音声切替は `fallbackToBrowser()` に一本化し、その再生
+  のみブラウザ音声へ切り替えて完了後に元の音声へ戻す（ユーザーが別音声を
+  選んでいた場合は尊重する）。`fallbackVoiceRestore` に保存し、通常終了だけで
+  なく停止・別再生の `stopSpeaking()` でも復元する。完了コールバックは
+  `playbackToken` が一致する場合だけ呼ばれるため、停止後の二重復元は起きない。
+  `audio.onerror` が先にフォールバックを開始し、`await audio.play()` の reject は
+  `audioErrorHandled` で抑止するため、同じ再生で二重に通知・切替しない。
+- 声調の無い `nü` / `lüe` のような入力はシンボル分割時に `ü` → `v` へ正規化
+  する。通常の声調付きピンインは従来どおり上流 g2pW 準拠。
+- API エラー文言には CORS 確認を追加する。サーバーが起動していても preflight
+  が拒否されるケースがあるため。
+- `tools/serve.py` は CSP ヘッダーを付与する。単一 HTML の inline script と
+  Tesseract/Piper の blob URL を許可するため `'unsafe-inline'` / `blob:` が
+  必要。SRI 付き CDN フォールバックは `script-src` の対象なので、
+  `https://cdn.jsdelivr.net` も明示的に許可する（`connect-src` だけでは
+  読み込み前にブロックされる）。`connect-src` は self・`http:`・`https:` の
+  scheme source を使う。CSP の host grammar は IPv6 literal を表現できず、
+  `http://[::1]:*` は Chromium で無効な source として警告されるため使わない。
+  loopback 制限はアプリ側の `getApiUrl()` が担う。
 
 ## 検証コマンド（Windows bash）
 ```bash
@@ -198,3 +241,8 @@ cd "C:\Users\ryosk\OneDrive\ドキュメント\App_CN_character_researcher"
 node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');const s=c.split('<script>')[1].split('</script>')[0];fs.writeFileSync('C:/Users/ryosk/AppData/Local/Temp/opencode/check.js',s)"
 node --check C:/Users/ryosk/AppData/Local/Temp/opencode/check.js
 ```
+
+RBNF 照合の一時スクリプトは `unicode-rbnf` を別ディレクトリに展開して使うため、
+`PYTHONPATH=C:/Users/ryosk/AppData/Local/Temp/opencode/unicode-rbnf` と
+`PYTHONIOENCODING=utf-8` を付ける。`review_cases.json` を共有する
+`review_diff_fixed.py` と `review_gaps.py` は並列実行せず、逐次実行する。

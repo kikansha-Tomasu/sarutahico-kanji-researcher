@@ -27,6 +27,27 @@ EXTRA_TYPES = {
     ".gz": "application/gzip",
 }
 
+# main.html is a single file with an inline script, so 'unsafe-inline' is
+# required here. Worker/media blob: URLs are created by Tesseract.js and Piper.
+# The SRI-protected CDN fallback scripts are governed by script-src; allowing
+# only connect-src would let the browser reject them before SRI is checked.
+# connect-src uses scheme sources: CSP host grammar cannot express IPv6
+# literals, and a literal http://[::1]:* source is rejected by Chromium.
+# The app itself still restricts API URLs to loopback hosts.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "media-src 'self' blob:; "
+    "worker-src 'self' blob:; "
+    "connect-src 'self' http: https:; "
+    "font-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'"
+)
+
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     ALLOWED_TOP_DIRS = {"vendor", "examples"}
@@ -65,6 +86,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")

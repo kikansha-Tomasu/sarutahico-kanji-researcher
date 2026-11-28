@@ -236,7 +236,8 @@
 
     <footer role="presentation">© SARUTAHICO</footer>
   </div>
-  <div id="messageBox" class="message-box" role="alert" aria-live="assertive"></div>
+  <div id="messageBox" class="message-box" aria-hidden="true"></div>
+  <div id="messageLive" class="visually-hidden" aria-live="assertive" aria-atomic="true"></div>
 
   <script>
     // ---- 設定 ----
@@ -280,6 +281,7 @@
     // v3: cache keys include SRI; only verified blobs are stored.
     const PIPER_CACHE_NAME = 'sarutahico-piper-v3';
     const API_TIMEOUT_MS = 15000;
+    const PIPER_FETCH_TIMEOUT_MS = 60000;
     // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
     const PIPER_VOICES = {
       'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
@@ -902,6 +904,7 @@
     const clearBtn = document.getElementById('clearBtn');
     const apiUrlInput = document.getElementById('apiUrl');
     const messageBox = document.getElementById('messageBox');
+    const messageLive = document.getElementById('messageLive');
     let lastMessageText = '';
     const analysisStatusEl = document.getElementById('analysisStatus');
     const manualKanjiInput = document.getElementById('manualKanjiInput');
@@ -952,22 +955,27 @@
     let ttsPitch = 1.0;
     let tesseractWorker = null;
     let tesseractReady = false;
+    let tesseractInitPromise = null;
     let tesseractOptions = null;
     let progressHideTimer = null;
     let piperSession = null;
     let piperLoading = null;
+    const piperFetchControllers = new Set();
     let activeAudio = null;
     let activeAudioUrl = null;
     let activeUtterance = null;
     let activeButton = null;
     let playbackToken = 0;
+    // Set only while a Piper failure is being covered by a browser voice.
+    // Stop or a new playback must restore the user's voice too, not just the
+    // normal end of the fallback utterance.
+    let fallbackVoiceRestore = null;
     let analysisGeneration = 0;
     let analysisActive = false;
     function cancelAnalysis() {
       analysisGeneration++;
       if (!analysisActive) return;
       analysisActive = false;
-      analyzeBtn.disabled = false;
       analyzeBtn.removeAttribute('aria-disabled');
       analyzeBtn.textContent = '漢字分析';
       resultPanel.removeAttribute('aria-busy');
@@ -1037,6 +1045,9 @@
 
     function undo() {
       cancelAnalysis();
+      // A pointer stroke must not resume from the old coordinate after its
+      // saved state has been popped.
+      drawing = false;
       if (keyDrawing) setKeyPen(false);
       if (undoStack.length === 0) {
         showMessage('元に戻す操作がありません。');
@@ -1233,6 +1244,7 @@
       }
       if (e.key === 'Escape') {
         if (keyDrawing) cancelKeyStroke();
+        else if (drawing) undo();
         else stopDrawing();
       }
     });
@@ -1269,25 +1281,25 @@
     function showMessage(text, duration = 3000) {
       clearTimeout(messageBox._timer);
       messageBox._timer = null;
-      const repeat = lastMessageText === text;
       lastMessageText = text;
       const token = (messageBox._token || 0) + 1;
       messageBox._token = token;
+      // The visible box is aria-hidden; a dedicated live node announces the
+      // same text. Resetting that node in a frame re-announces repeats without
+      // blanking the visible message or doubling alert semantics.
       messageBox.textContent = text;
       messageBox.classList.add('visible');
-      if (repeat) {
-        // Re-announce identical alerts by clearing and restoring the text.
-        // The canonical text lives in lastMessageText so other code can read
-        // it even during the animation frame when the node is blank.
-        messageBox.textContent = '';
-        requestAnimationFrame(() => {
-          if (messageBox._token === token) messageBox.textContent = text;
-        });
-      }
+      messageLive.textContent = '';
+      requestAnimationFrame(() => {
+        if (messageBox._token === token) messageLive.textContent = text;
+      });
       if (duration > 0) {
         messageBox._timer = setTimeout(() => {
           messageBox.classList.remove('visible');
-          if (messageBox._token === token) messageBox.textContent = '';
+          if (messageBox._token === token) {
+            messageBox.textContent = '';
+            messageLive.textContent = '';
+          }
         }, duration);
       }
     }
@@ -1315,7 +1327,12 @@
     async function resolveAsset(localPath, remoteUrl, { requireSri = true } = {}) {
       try {
         const res = await fetch(localPath, { method: 'HEAD', cache: 'no-store' });
-        if (res.ok) return { url: localPath, local: true, integrity: '' };
+        if (res.ok) {
+          // The vendored files are byte-identical to the CDN copies, so the
+          // same hash can verify them at runtime without a second download.
+          // This closes the gap where only CDN fallbacks were SRI-checked.
+          return { url: localPath, local: true, integrity: CDN_SRI[remoteUrl] || '' };
+        }
       } catch (e) { /* local assets are optional */ }
       const integrity = CDN_SRI[remoteUrl] || '';
       // SRI 未定義の CDN を無検証で実行しない。音声モデルは
@@ -1525,7 +1542,7 @@
         }
       } catch (err) {
         console.error('API Error:', err);
-        showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーが起動しているか確認してください。');
+        showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーの起動とCORS許可を確認してください。');
         return null;
       }
     }
@@ -1578,7 +1595,7 @@
         }
       } catch (err) {
         console.error('API Error:', err);
-        showMessage('意味・例文の生成に失敗しました。モデルの応答を確認してください。');
+        showMessage('意味・例文の生成に失敗しました。モデルの応答とCORS許可を確認してください。');
         return null;
       }
     }
@@ -1586,39 +1603,50 @@
     // ---- Tesseract.js OCR (高性能オフラインOCR) ----
     async function initTesseract({ manageProgress = true } = {}) {
       if (tesseractReady) return true;
-      try {
-        if (manageProgress) showProgress(true);
-        setProgress(10);
-        const tesseractAsset = await resolveAsset('vendor/tesseract/tesseract.min.js', TESSERACT_CDN);
-        if (!(await requireLocalAssets(TESSERACT_LOCAL_ASSETS))) {
-          throw new Error('OCRの二次アセットがローカルにありません。tools/fetch-assets.py を実行してください。');
-        }
-        if (!window.Tesseract) await loadScript(tesseractAsset.url, tesseractAsset.integrity);
-        // The CDN main script has SRI, but Tesseract fetches these files itself.
-        // Always point them at the verified local vendor copies.
-        const localOptions = {
-          workerPath: new URL('vendor/tesseract/worker.min.js', location.href).href,
-          corePath: new URL('vendor/tesseract/core/', location.href).href,
-          langPath: new URL('vendor/tesseract/lang/', location.href).href
-        };
-        tesseractOptions = Object.assign({
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              setProgress(30 + Math.round(m.progress * 60));
-            }
+      // Cancelling an analysis cannot abort createWorker(). Join the in-flight
+      // initialization instead of starting a second worker from a second run.
+      if (tesseractInitPromise) return tesseractInitPromise;
+      const promise = (async () => {
+        try {
+          if (manageProgress) showProgress(true);
+          setProgress(10);
+          const tesseractAsset = await resolveAsset('vendor/tesseract/tesseract.min.js', TESSERACT_CDN);
+          if (!(await requireLocalAssets(TESSERACT_LOCAL_ASSETS))) {
+            throw new Error('OCRの二次アセットがローカルにありません。tools/fetch-assets.py を実行してください。');
           }
-        }, localOptions);
-        setProgress(30);
-        tesseractWorker = await Tesseract.createWorker('chi_sim', 1, tesseractOptions);
-        setProgress(100);
-        tesseractReady = true;
-        if (manageProgress) showProgress(false);
-        return true;
-      } catch (err) {
-        console.error('Tesseract init error:', err && err.message ? err.message : err);
-        if (manageProgress) showProgress(false);
-        showMessage('OCRエンジンの読み込みに失敗しました。' + (err && err.message ? ' ' + err.message : ''), 0);
-        return false;
+          if (!window.Tesseract) await loadScript(tesseractAsset.url, tesseractAsset.integrity);
+          // The CDN main script has SRI, but Tesseract fetches these files itself.
+          // Always point them at the verified local vendor copies.
+          const localOptions = {
+            workerPath: new URL('vendor/tesseract/worker.min.js', location.href).href,
+            corePath: new URL('vendor/tesseract/core/', location.href).href,
+            langPath: new URL('vendor/tesseract/lang/', location.href).href
+          };
+          tesseractOptions = Object.assign({
+            logger: m => {
+              if (m.status === 'recognizing text' && progressBar.style.display !== 'none') {
+                setProgress(30 + Math.round(m.progress * 60));
+              }
+            }
+          }, localOptions);
+          setProgress(30);
+          tesseractWorker = await Tesseract.createWorker('chi_sim', 1, tesseractOptions);
+          setProgress(100);
+          tesseractReady = true;
+          if (manageProgress) showProgress(false);
+          return true;
+        } catch (err) {
+          console.error('Tesseract init error:', err && err.message ? err.message : err);
+          if (manageProgress) showProgress(false);
+          showMessage('OCRエンジンの読み込みに失敗しました。' + (err && err.message ? ' ' + err.message : ''), 0);
+          return false;
+        }
+      })();
+      tesseractInitPromise = promise;
+      try {
+        return await promise;
+      } finally {
+        if (tesseractInitPromise === promise) tesseractInitPromise = null;
       }
     }
 
@@ -1779,8 +1807,24 @@
       if (token === playbackToken) resetPlaybackUI();
     }
 
+    function restoreFallbackVoice() {
+      if (!fallbackVoiceRestore) return;
+      const { restore, temporary } = fallbackVoiceRestore;
+      fallbackVoiceRestore = null;
+      // A different selection made during the fallback belongs to the user.
+      if (voiceSelect.value !== temporary) return;
+      voiceSelect.value = restore;
+      updateSelectedVoice();
+      updateTtsControls();
+    }
+
     function stopSpeaking() {
+      // Stop and replacement playback both end the temporary fallback.
+      restoreFallbackVoice();
       playbackToken++;
+      // A remote Piper download can stall; Stop must release it immediately.
+      piperFetchControllers.forEach(controller => controller.abort());
+      piperFetchControllers.clear();
       if (activeAudio) {
         const audio = activeAudio;
         activeAudio = null;
@@ -1802,11 +1846,15 @@
       setTtsStatus('');
     }
 
-    function speakWithBrowser(text, btn, token, statusText = 'ブラウザ音声で再生中') {
+    function speakWithBrowser(text, btn, token, statusText = 'ブラウザ音声で再生中', onFinish = null) {
+      const finish = () => {
+        if (token === playbackToken && typeof onFinish === 'function') onFinish();
+      };
       if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance === 'undefined') {
         showMessage('このブラウザは音声合成に対応していません。');
         endPlaybackUI(token);
         setTtsStatus('');
+        finish();
         return;
       }
       const utterance = new SpeechSynthesisUtterance(text);
@@ -1818,18 +1866,21 @@
         if (activeUtterance === utterance) activeUtterance = null;
         endPlaybackUI(token);
         setTtsStatus('');
+        finish();
       };
       utterance.onerror = (e) => {
         if (activeUtterance === utterance) activeUtterance = null;
         if (e && (e.error === 'canceled' || e.error === 'interrupted')) {
           endPlaybackUI(token);
           setTtsStatus('');
+          finish();
           return;
         }
         console.error('Speech error:', e);
         endPlaybackUI(token);
         setTtsStatus('');
         showMessage('音声の再生に失敗しました。');
+        finish();
       };
       if (!beginPlaybackUI(btn, token)) return;
       activeUtterance = utterance;
@@ -1872,10 +1923,14 @@
       }
     }
 
-    async function cachedFetch(url, onProgress, integrity = '') {
+    async function cachedFetch(url, onProgress, integrity = '', signal = null) {
       // Only integrity-verified remote downloads are cached. Vendored local
       // assets are verified by tools/fetch-assets.py at build time; caching
       // them without a content hash could serve stale files after an update.
+      const assertActive = () => {
+        if (signal && signal.aborted) throw new DOMException('Piper fetch aborted', 'AbortError');
+      };
+      assertActive();
       let cache = null;
       if (integrity) {
         try {
@@ -1884,6 +1939,7 @@
           console.warn('Cache API unavailable:', e);
         }
       }
+      assertActive();
       const cacheKey = integrity ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}` : '';
       if (cache) {
         try {
@@ -1891,9 +1947,11 @@
           if (hit) {
             const cachedBlob = await hit.blob();
             await verifyBlobIntegrity(cachedBlob, integrity);
+            assertActive();
             return cachedBlob;
           }
         } catch (e) {
+          if (signal && signal.aborted) throw e;
           // A tampered or unreadable cache entry must not be trusted. Drop it
           // and fall through to a fresh, integrity-verified download.
           console.warn('Cached Piper asset rejected:', e);
@@ -1901,7 +1959,8 @@
         }
       }
 
-      const res = await fetch(url);
+      assertActive();
+      const res = await fetch(url, signal ? { signal } : undefined);
       if (!res.ok) throw new Error(`${url} -> ${res.status}`);
       const total = Number(res.headers.get('Content-Length') || 0);
       let blob;
@@ -1920,6 +1979,7 @@
       } else {
         blob = await res.blob();
       }
+      assertActive();
       if (integrity) await verifyBlobIntegrity(blob, integrity);
       if (cache) {
         try {
@@ -1930,6 +1990,7 @@
           console.warn('Cache write failed:', e);
         }
       }
+      assertActive();
       return blob;
     }
 
@@ -1979,7 +2040,11 @@
 
       // A preparation promise can be joined by a new request after a stop.
       // Only show its progress while this voice is still the active request.
-      let lastPiperProgress = -1;
+      // Remote model downloads get both a deadline and an abort handle so a
+      // stalled fallback cannot keep playback preparation pending forever.
+      const fetchController = new AbortController();
+      const fetchTimeoutId = setTimeout(() => fetchController.abort(), PIPER_FETCH_TIMEOUT_MS);
+      piperFetchControllers.add(fetchController);
       const setPrepStatus = (text) => {
         if (!(activeButton && voiceSelect.value === voiceId)) return;
         const match = text.match(/(\d+)%/);
@@ -2005,13 +2070,13 @@
           throw new Error('この音声の SRI が定義されていません。');
         }
         setPrepStatus('ニューラル音声の設定を読み込み中...');
-        const configBlob = await cachedFetch(base + '.onnx.json', null, configSri);
+        const configBlob = await cachedFetch(base + '.onnx.json', null, configSri, fetchController.signal);
         const config = JSON.parse(await configBlob.text());
         setPrepStatus('ニューラル音声のモデルを読み込み中...');
         const modelBlob = await cachedFetch(base + '.onnx', (loaded, total) => {
           const pct = Math.round(loaded * 100 / total);
           setPrepStatus(`モデルを取得中... ${pct}%`);
-        }, modelSri);
+        }, modelSri, fetchController.signal);
         const session = await window.ort.InferenceSession.create(await modelBlob.arrayBuffer(), {
           executionProviders: ['wasm']
         });
@@ -2039,7 +2104,11 @@
               // Keep every known character in order instead of dropping the
               // whole cluster.
               Array.from(symbol).forEach(single => {
-                if (has(single)) phonemes.push(single);
+                // Tone-less pinyin-like input can reach here (e.g. "nü").
+                // The voice map uses "v" for ü; other characters are kept
+                // as-is so arbitrary Latin text is not mispronounced.
+                const normalized = single === 'ü' ? 'v' : single;
+                if (has(normalized)) phonemes.push(normalized);
                 else dropped.push(single);
               });
               return;
@@ -2075,12 +2144,50 @@
       try {
         return await promise;
       } finally {
+        clearTimeout(fetchTimeoutId);
+        piperFetchControllers.delete(fetchController);
         if (piperLoading && piperLoading.promise === promise) piperLoading = null;
       }
     }
 
     async function speakWithPiper(text, btn, token) {
       if (!beginPlaybackUI(btn, token)) return;
+      const requestedVoiceId = voiceSelect.value;
+      let audioErrorHandled = false;
+      // One fallback path for every Piper failure. audio.onerror and a
+      // subsequent audio.play() rejection can both fire for the same media
+      // error; only the first one may switch voices and notify the user.
+      const fallbackToBrowser = (reason = 'prepare') => {
+        if (token !== playbackToken) return;
+        if (activeAudio) {
+          const audio = activeAudio;
+          activeAudio = null;
+          audio.onended = null;
+          audio.onerror = null;
+          try { audio.pause(); audio.currentTime = 0; } catch (e) { /* ignore */ }
+        }
+        if (activeAudioUrl) {
+          URL.revokeObjectURL(activeAudioUrl);
+          activeAudioUrl = null;
+        }
+        resetPlaybackUI();
+        const fallbackValue = browserVoiceDefault() || '';
+        voiceSelect.value = fallbackValue;
+        fallbackVoiceRestore = { restore: requestedVoiceId, temporary: fallbackValue };
+        updateSelectedVoice();
+        updateTtsControls();
+        const message = reason === 'audio'
+          ? '音声の再生に失敗したため、ブラウザ音声で再生します。'
+          : reason === 'noPhonemes'
+            ? 'この文字は中国語音声で読み上げられません。ブラウザ音声で再生します。'
+            : 'ニューラル音声の準備に失敗したため、ブラウザ音声で再生します。';
+        showMessage(message, 5000);
+        speakWithBrowser(text, btn, token, 'ブラウザ音声に切り替えて再生中', () => {
+          // The fallback is for this playback only. Stop/replacement also
+          // restores the voice, so this is just the normal completion path.
+          restoreFallbackVoice();
+        });
+      };
       try {
         const voiceId = voiceSelect.value;
         const engine = await getPiperSession(voiceId);
@@ -2181,42 +2288,26 @@
         };
         audio.onerror = (e) => {
           if (activeAudio !== audio) return;
+          audioErrorHandled = true;
           console.error('Piper audio error:', e);
           activeAudio = null;
           if (activeAudioUrl === url) {
             URL.revokeObjectURL(url);
             activeAudioUrl = null;
           }
-          endPlaybackUI(token);
-          setTtsStatus('');
-          showMessage('音声の再生に失敗しました。');
+          fallbackToBrowser('audio');
         };
         await audio.play();
         if (token !== playbackToken || activeAudio !== audio) return;
         setTtsStatus(`Piper（${PIPER_VOICES[voiceId].label}）で再生中`);
       } catch (err) {
-        console.error('Piper TTS error:', err);
+        // audio.onerror already started the single fallback; the rejected
+        // play() promise must not switch voices or notify a second time.
+        if (audioErrorHandled) return;
         if (token !== playbackToken) return;
-        if (activeAudio) {
-          const audio = activeAudio;
-          activeAudio = null;
-          audio.onended = null;
-          audio.onerror = null;
-          try { audio.pause(); audio.currentTime = 0; } catch (e) { /* ignore */ }
-        }
-        if (activeAudioUrl) {
-          URL.revokeObjectURL(activeAudioUrl);
-          activeAudioUrl = null;
-        }
-        resetPlaybackUI();
-        voiceSelect.value = browserVoiceDefault() || '';
-        updateSelectedVoice();
-        updateTtsControls();
+        console.error('Piper TTS error:', err);
         const noPhonemes = err && err.message === 'No phonemes recognized by the voice model';
-        showMessage(noPhonemes
-          ? 'この文字は中国語音声で読み上げられません。ブラウザ音声で再生します。'
-          : 'ニューラル音声の準備に失敗したため、ブラウザ音声で再生します。', 5000);
-        speakWithBrowser(text, btn, token, 'ブラウザ音声に切り替えて再生中');
+        fallbackToBrowser(noPhonemes ? 'noPhonemes' : 'prepare');
       }
     }
 
@@ -2272,7 +2363,8 @@
     });
 
     manualKanjiInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+      // Enter commits an IME candidate; do not search the uncommitted value.
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
         lookupBtn.click();
       }
     });
@@ -2364,6 +2456,7 @@
             setProgress(100);
             scheduleProgressHide(1000);
           } catch (ocrErr) {
+            if (generation !== analysisGeneration) return;
             console.error('OCR Error:', ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
             showProgress(false);
             showMessage('OCR認識に失敗しました。手動入力をお使いください。' + (ocrErr && ocrErr.message ? ' ' + ocrErr.message : ''), 0);
@@ -2378,7 +2471,6 @@
       } finally {
         if (generation !== analysisGeneration) return;
         analysisActive = false;
-        analyzeBtn.disabled = false;
         analyzeBtn.removeAttribute('aria-disabled');
         analyzeBtn.textContent = '漢字分析';
         resultPanel.removeAttribute('aria-busy');
