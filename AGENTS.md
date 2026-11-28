@@ -64,6 +64,9 @@
   分岐で `i` を進めないと無限ループになり、ブラウザ検証全体がハングする。
   「非数字をコピーしたら必ず `i++`」を守り、64 桁超を含む純粋関数テストを
   先に実行してからブラウザ回帰へ進む。
+- 上流 Python の `\d` は全角数字も一致するため、`expandChineseNumbers()` の
+  冒頭で `０-９` を NFKC 正規化して ASCII 数字へ変換する。変換しない場合
+  `７７%` / `２０２６年` / `７℃` の数字が音素化前に捨てられる。
 - 温度・パーセント・漢数字年の regex に `\d{1,64}` のような桁数上限を付けると、
   65 桁目から部分一致して単位変換が壊れる（`1`.repeat(65)+'%'` など）。
   上限を外した `\d+(?:\.\d+)?\s*単位` も単位が無い long run で二乗時間
@@ -187,7 +190,10 @@
 - Piper は文末記号（`。？！….`）で phoneme group を切り、各 group に
   BOS/EOS を設定して `session.run()` を実行し、PCM を連結する。旧方式の
   1 回推論では複数文の句間が学習時と異なった。音素グループが空白だけの
-  場合は推論しない。
+  場合は推論しない。上流 `stream_to_sentences()` は連続する文末記号を
+  1 つの境界として扱うため、`！！！` のような連続記号で即座に分割すると
+  BOS/EOS/pad が重複して余分な推論と不正な ID 列になる。連続 run の
+  末尾（次の非文末音素の直前）で分割する。
 - `cachedFetch()` は integrity 付き remote ダウンロードのみキャッシュする。
   ローカル同梱アセットはビルド時に検証済みで、キャッシュすると更新後に古い
   バイト列が残るためキャッシュしない（`PIPER_LOCAL_CACHE_VERSION` は削除）。
@@ -215,6 +221,9 @@
   `piperFetchControllers` で締め切る。`stopSpeaking()` が AbortController を
   abort し、`cachedFetch()` は cache hit / verify / stream の各待機後も
   signal を確認する。停止操作で準備中の状態が残らないようにする。
+  同じタスク内で Stop→別再生すると aborted promise を `piperLoading` から
+  再利用して誤フォールバックするため、`stopSpeaking()` で `piperLoading` も
+  同期的に null にする。
 - Piper 失敗時のブラウザ音声切替は `fallbackToBrowser()` に一本化し、その再生
   のみブラウザ音声へ切り替えて完了後に元の音声へ戻す（ユーザーが別音声を
   選んでいた場合は尊重する）。`fallbackVoiceRestore` に保存し、通常終了だけで
@@ -222,6 +231,7 @@
   `playbackToken` が一致する場合だけ呼ばれるため、停止後の二重復元は起きない。
   `audio.onerror` が先にフォールバックを開始し、`await audio.play()` の reject は
   `audioErrorHandled` で抑止するため、同じ再生で二重に通知・切替しない。
+  通常終了時は復元後に `setTtsStatus('')` し、再生終了後のステータス残留を防ぐ。
 - 声調の無い `nü` / `lüe` のような入力はシンボル分割時に `ü` → `v` へ正規化
   する。通常の声調付きピンインは従来どおり上流 g2pW 準拠。
 - API エラー文言には CORS 確認を追加する。サーバーが起動していても preflight

@@ -510,6 +510,9 @@
 
     function expandChineseNumbers(text) {
       let source = String(text).replace(/[“”"]/g, '');
+      // Upstream RBNF/Python \d accepts full-width digits. Normalize them
+      // before any scanner runs so ７７% and ２０２６年 are expanded too.
+      source = source.replace(/[０-９]/g, ch => ch.normalize('NFKC'));
       // Thousands separators are punctuation, not digits: "1,000" is 一千.
       source = source.replace(/(\d)[,，](?=\d{3}(?!\d))/g, '$1');
       // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
@@ -1823,6 +1826,9 @@
       restoreFallbackVoice();
       playbackToken++;
       // A remote Piper download can stall; Stop must release it immediately.
+      // Clear the in-flight record synchronously too: a replacement playback in
+      // the same task must not join a promise whose signal was just aborted.
+      piperLoading = null;
       piperFetchControllers.forEach(controller => controller.abort());
       piperFetchControllers.clear();
       if (activeAudio) {
@@ -2186,6 +2192,9 @@
           // The fallback is for this playback only. Stop/replacement also
           // restores the voice, so this is just the normal completion path.
           restoreFallbackVoice();
+          // restoreFallbackVoice() updates controls and can reselect the Piper
+          // status; playback has ended, so clear it like every other path.
+          setTtsStatus('');
         });
       };
       try {
@@ -2206,12 +2215,19 @@
         const dropped = [];
         const groups = [];
         let current = [];
+        let pendingSentenceEnd = false;
+        // Upstream stream_to_sentences() treats a consecutive run of sentence
+        // enders as one boundary. Splitting at every symbol would add extra
+        // BOS/EOS/pad pairs for input such as 你好！！！.
         (phonemes.phonemes || []).forEach(phoneme => {
-          current.push(phoneme);
-          if (sentenceEnd.has(phoneme)) {
+          const isSentenceEnd = sentenceEnd.has(phoneme);
+          if (pendingSentenceEnd && !isSentenceEnd) {
             groups.push(current);
             current = [];
+            pendingSentenceEnd = false;
           }
+          current.push(phoneme);
+          if (isSentenceEnd) pendingSentenceEnd = true;
         });
         if (current.length) groups.push(current);
 
