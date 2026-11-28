@@ -265,7 +265,17 @@
 - Pages サイト自体は公開されるため、`backups/` や `tools/`、`AGENTS.md` を含む
   リポジトリ全体が配信対象になる点に注意する。API モードは loopback 制限の
   ままなので、Pages 版は API不要モードで使う。
-- Pages の有効化は GitHub 側の設定操作であり、push だけでは公開されない。
+- Pages の有効化は本来 GitHub 側の設定操作であり、push だけでは公開されない。
+  このリポジトリでは API で作成済み（`POST /pages`、`build_type=legacy`、
+  branch `main`、path `/`）。公開 URL は
+  `https://kikansha-tomasu.github.io/sarutahico-kanji-researcher/` である。
+  新規作成は `POST /pages`、既存設定の更新は `PUT /pages` を使う。未作成の
+  サイトへ `PUT` すると 404 になる。
+- 実 Pages の live 検証済み。ルートは `main.html` へリダイレクトし、
+  `.mjs` / `.wasm` / `.onnx` / `.gz` を含む全 `vendor/` アセットが 200 で、
+  MIME は mime-db 由来の値。`external: []`、`badResponses: []`、`errors: []`、
+  OCR `中` → `zhōng`、Piper 音素生成と SRI 付与を確認した。
+  CDN / Hugging Face の実レスポンスも SRI・CORS・完全性が一致する。
 
 ## 検証コマンド（Windows bash）
 ```bash

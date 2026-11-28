@@ -22,7 +22,9 @@ python tools/serve.py
 3. 公開 URL は `https://<owner>.github.io/<repository>/` です（ユーザー／組織サイトの場合は `https://<owner>.github.io/`）。ルート URL の `index.html` は `main.html` へリダイレクトします。直接 `https://<owner>.github.io/<repository>/main.html` を開いても動作します。
 4. Pages に配置した `vendor/` があれば、OCR・Piper とも外部通信なしで動作します。主要スクリプトが欠けた場合は SRI 検証付きの CDN へ、音声モデルが欠けた場合は完全性検証付きの Hugging Face へフォールバックします。Tesseract / ORT の二次アセットが欠けた場合はフォールバックせずエラーになります。
 
-GitHub Pages では開発サーバーの CSP・allowlist・MIME 指定は使えません。MIME は Pages 側の既定値（`.mjs` は `text/javascript`、`.wasm` は `application/wasm`）に依存します。Pages サイトは公開され、`backups/` / `tools/` / `AGENTS.md` を含むリポジトリ全体が配信対象です。秘密情報は置かないでください。API 連携モードは引き続き loopback のみを受け付けるため、Pages 版では API 不要モードでの利用を想定しています。有効化自体は GitHub の設定操作なので、このリポジトリへ push しただけでは公開されません。
+このリポジトリでは Pages を有効化済みで、公開 URL は `https://kikansha-tomasu.github.io/sarutahico-kanji-researcher/` です。fork などで有効化されていない場合は、上記の Settings 操作が必要です。
+
+GitHub Pages では開発サーバーの CSP・allowlist・MIME 指定は使えません。MIME は Pages 側の既定値（`.mjs` は `text/javascript`、`.wasm` は `application/wasm`）に依存します。Pages サイトは公開され、`backups/` / `tools/` / `AGENTS.md` を含むリポジトリ全体が配信対象です。秘密情報は置かないでください。API 連携モードは引き続き loopback のみを受け付けるため、Pages 版では API 不要モードでの利用を想定しています。再設定や fork では GitHub の設定操作が必要で、push だけでは公開されません。
 
 ## できること
 
@@ -75,6 +77,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - API URL の loopback 制限（外部ホスト・埋め込み認証情報を拒否）と fetch の中断シグナル
 - 開発サーバーの allowlist（`/` と `/index.html` が 200、`.git/config` / `backups/` / `tools/` / `README.md` が 404）
 - GitHub Pages 相当のサブパス配信（ルートのリダイレクト、OCR / Piper、SRI、外部通信ゼロ）
+- 実 GitHub Pages の live 配信（ルートのリダイレクト、主要／二次アセットと音声モデルの 200、SRI、OCR / Piper、外部通信ゼロ）
+- CDN / Hugging Face の実ネットワーク（SRI 一致、CORS、モデル・設定の完全性）
 - axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
 - Firefox の OCR / Piper、WebKit の OCR / モデル推論
 
@@ -99,6 +103,8 @@ sarutahico_logo.png          ヘッダーロゴ
 ## 制約
 
 - 動作確認済み: Chromium 系（Edge）と Firefox で OCR・Piper 再生・axe 検証が完了しています。
+- 実 GitHub Pages（`https://kikansha-tomasu.github.io/sarutahico-kanji-researcher/`）でもルートのリダイレクト、全 `vendor/` アセットの 200、OCR / Piper、外部通信ゼロを確認済みです。
+- CDN / Hugging Face の実ネットワークでも SRI・CORS・モデル／設定の完全性を確認済みです。通常は同梱 `vendor/` を使うため、これらの通信は発生しません。
 - WebKit（Safari 系エンジン）では OCR・キーボード描画・モデル推論まで確認できましたが、検証用ヘッドレスビルドには `speechSynthesis` / `SpeechSynthesisUtterance` 自体が無いため、Piper 失敗時のブラウザ音声フォールバックは未検証です。実機 Safari / iOS とスクリーンリーダーも未検証です。
 - API 連携モードの URL は `127.0.0.1` / `localhost` / `::1` の http(s) のみ受け付けます。LAN 上の別ホストにある API は指定できません。ローカル API 側で `http://127.0.0.1:8123` からの CORS（`Access-Control-Allow-Origin` と `Content-Type` の許可）が必要です。
 - 初回のモデル読み込みには数秒〜十数秒かかります（同梱アセットがある場合はダウンロードは発生しません）。
