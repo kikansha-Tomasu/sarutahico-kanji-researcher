@@ -77,10 +77,10 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - API URL の loopback 制限（外部ホスト・埋め込み認証情報を拒否）と fetch の中断シグナル
 - 開発サーバーの allowlist（`/` と `/index.html` が 200、`.git/config` / `backups/` / `tools/` / `README.md` が 404）
 - GitHub Pages 相当のサブパス配信（ルートのリダイレクト、OCR / Piper、SRI、外部通信ゼロ）
-- 実 GitHub Pages の live 配信（ルートのリダイレクト、主要／二次アセットと音声モデルの 200、SRI、OCR / Piper、外部通信ゼロ）
+- 実 GitHub Pages の live 配信（ルートのリダイレクト、主要／二次アセットと音声モデルの 200、SRI、OCR / Piper、外部通信ゼロ）を Edge / Firefox / WebKit で確認
 - CDN / Hugging Face の実ネットワーク（SRI 一致、CORS、モデル・設定の完全性）
-- axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
-- Firefox の OCR / Piper、WebKit の OCR / モデル推論
+- axe-core による WCAG 2.1 AA 検証（Chromium / Firefox、実 Pages では Firefox / WebKit とも `violations: []`, `incomplete: []`）
+- Firefox の OCR / Piper、WebKit の OCR / モデル推論（実 Pages でも両エンジンで OCR・音素生成を確認）
 
 ## ファイル構成
 

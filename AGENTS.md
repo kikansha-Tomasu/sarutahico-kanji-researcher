@@ -276,6 +276,12 @@
   MIME は mime-db 由来の値。`external: []`、`badResponses: []`、`errors: []`、
   OCR `中` → `zhōng`、Piper 音素生成と SRI 付与を確認した。
   CDN / Hugging Face の実レスポンスも SRI・CORS・完全性が一致する。
+- 実 Pages のクロスブラウザ E2E は Edge（Chromium 系）/ Firefox / WebKit で成功。
+  Firefox / WebKit でもルート リダイレクト、OCR `中` → `zhōng`、音素生成、
+  `external` / `badResponses` / `errors` が空であることを確認した。
+  実 Pages の axe-core も Firefox / WebKit で `violations: []`、
+  `incomplete: []`。WebKit ヘッドレスには `speechSynthesis` が無いため
+  ブラウザ音声フォールバックは未検証のまま。
 
 ## 検証コマンド（Windows bash）
 ```bash
