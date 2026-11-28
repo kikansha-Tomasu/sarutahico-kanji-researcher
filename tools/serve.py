@@ -51,7 +51,7 @@ CONTENT_SECURITY_POLICY = (
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     ALLOWED_TOP_DIRS = {"vendor", "examples"}
-    ALLOWED_ROOT_FILES = {"main.html", "sarutahico_logo.png"}
+    ALLOWED_ROOT_FILES = {"index.html", "main.html", "sarutahico_logo.png"}
 
     def translate_path(self, path: str) -> str:
         # Keep the development server confined to ROOT even when it is started
@@ -68,6 +68,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         allowed = (
             parts[0] in self.ALLOWED_TOP_DIRS
             or (len(parts) == 1 and parts[0] in self.ALLOWED_ROOT_FILES)
+            or relative == "."  # "/" serves index.html; list_directory() stays 404
         )
         if not allowed:
             return os.path.join(root, "__blocked__")
@@ -101,7 +102,7 @@ def main() -> None:
 
     handler = functools.partial(Handler, directory=ROOT)
     with socketserver.TCPServer((args.bind, args.port), handler) as httpd:
-        print(f"Serving {ROOT} at http://{args.bind}:{args.port}/main.html", flush=True)
+        print(f"Serving {ROOT} at http://{args.bind}:{args.port}/ (also /main.html)", flush=True)
         httpd.serve_forever()
 
 

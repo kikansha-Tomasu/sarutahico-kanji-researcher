@@ -11,9 +11,18 @@ python tools/serve.py
 
 ブラウザで <http://127.0.0.1:8123/main.html> を開いてください。
 
-開発サーバーはアプリに必要なファイルだけを配信します（`/vendor/`、`/examples/`、`/main.html`、`/sarutahico_logo.png`）。`.git/` や `backups/`、`tools/` は配信されません。`--bind 0.0.0.0` で起動する場合も同様です。CSP ヘッダーも付与します（単一 HTML のインラインスクリプト、Tesseract/Piper の blob URL、SRI 付き CDN フォールバック用の `https://cdn.jsdelivr.net` を許可し、接続先を self・HTTP(S) に制限します）。API URL 自体はアプリ側で loopback のみに制限されます。
+開発サーバーはアプリに必要なファイルだけを配信します（`/vendor/`、`/examples/`、`/index.html`、`/main.html`、`/sarutahico_logo.png`）。`.git/` や `backups/`、`tools/` は配信されません。`--bind 0.0.0.0` で起動する場合も同様です。CSP ヘッダーも付与します（単一 HTML のインラインスクリプト、Tesseract/Piper の blob URL、SRI 付き CDN フォールバック用の `https://cdn.jsdelivr.net` を許可し、接続先を self・HTTP(S) に制限します）。API URL 自体はアプリ側で loopback のみに制限されます。
 
-`file://` での直接開きは、Cache API と ES モジュールの制限により推奨しません。必ず上記ローカルサーバー経由で利用してください。
+`file://` での直接開きは、Cache API と ES モジュールの制限により推奨しません。開発時は上記ローカルサーバー、公開時は後述の GitHub Pages 経由で利用してください。
+
+## GitHub Pages で使う
+
+1. GitHub Free では public リポジトリからのみ Pages を公開できます（private からの公開には Pro / Team / Enterprise 等が必要）。このリポジトリは public です。リポジトリの **Settings → Pages → Build and deployment** で、Source を `Deploy from a branch`、Branch を `main`、Folder を `/(root)` に設定します。
+2. ルートの `.nojekyll` により Jekyll の変換は行われません。ビルドは不要です。
+3. 公開 URL は `https://<owner>.github.io/<repository>/` です（ユーザー／組織サイトの場合は `https://<owner>.github.io/`）。ルート URL の `index.html` は `main.html` へリダイレクトします。直接 `https://<owner>.github.io/<repository>/main.html` を開いても動作します。
+4. Pages に配置した `vendor/` があれば、OCR・Piper とも外部通信なしで動作します。主要スクリプトが欠けた場合は SRI 検証付きの CDN へ、音声モデルが欠けた場合は完全性検証付きの Hugging Face へフォールバックします。Tesseract / ORT の二次アセットが欠けた場合はフォールバックせずエラーになります。
+
+GitHub Pages では開発サーバーの CSP・allowlist・MIME 指定は使えません。MIME は Pages 側の既定値（`.mjs` は `text/javascript`、`.wasm` は `application/wasm`）に依存します。Pages サイトは公開され、`backups/` / `tools/` / `AGENTS.md` を含むリポジトリ全体が配信対象です。秘密情報は置かないでください。API 連携モードは引き続き loopback のみを受け付けるため、Pages 版では API 不要モードでの利用を想定しています。有効化自体は GitHub の設定操作なので、このリポジトリへ push しただけでは公開されません。
 
 ## できること
 
@@ -54,8 +63,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - OCR（`中` の認識）、Piper `chaowen` の WAV 生成、ブラウザ音声フォールバック
 - 再生中のボタン切替、準備中の停止、上流準拠のピンイン音素化
   （零声母 `Ø`、軽声 `0`→`5`、ü 韻母のみ `v` 化、グループ末尾のみ pad）
-  （`九` → `j,iu,3`、`右` → `y,ou,4`、`居` → `j,v,1`）
-- 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`、`1,000` → `一千`）と上流 RBNF 6,142 ケース・上位ギャップ集中ケースとの一致
+  （`九` → `j,iu,3`、`右` → `y,ou,4`、`居` → `j,u,1`）
+- 数字展開（`2026年` → `二〇二六年`、`105` → `一百〇五`、`100001000` → `一亿〇一千`、`1,000` → `一千`）と上流 RBNF 8,178 ケース・上位ギャップ集中ケース（86 ケース）との一致
 - 20 桁超の桁グループ読み（`123456789012345678901` → `一垓二千三百四十五京…`）で単位が欠落しないこと
 - 年の桁読み（`2026年9月` → `二〇二六年九月`、`2026年2027年` → `二〇二六年二〇二七年`、5 桁以上は一般数値）
 - CDN フォールバック時の SRI 属性付与、不正ハッシュの拒否、二次アセット欠落時の fail-closed、二次アセットのローカルパス強制
@@ -64,7 +73,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 - Piper の句読点クラスタ（`。 ` / `！！` / `……`）保持と文ごとの推論分割
 - 解析の競合制御（実行中にモード切替で古い OCR 結果を破棄、空キャンバスで完了状態を通知しない）
 - API URL の loopback 制限（外部ホスト・埋め込み認証情報を拒否）と fetch の中断シグナル
-- 開発サーバーの allowlist（`.git/config` / `backups/` / `tools/` / `README.md` が 404）
+- 開発サーバーの allowlist（`/` と `/index.html` が 200、`.git/config` / `backups/` / `tools/` / `README.md` が 404）
+- GitHub Pages 相当のサブパス配信（ルートのリダイレクト、OCR / Piper、SRI、外部通信ゼロ）
 - axe-core による WCAG 2.1 AA 検証（Chromium / Firefox とも `violations: []`, `incomplete: []`）
 - Firefox の OCR / Piper、WebKit の OCR / モデル推論
 
@@ -72,6 +82,8 @@ node -e "const fs=require('fs');const c=fs.readFileSync('main.html','utf-8');con
 
 ```text
 main.html                    アプリ本体（単一 HTML）
+index.html                   GitHub Pages のルート用リダイレクト（アプリ本体ではない）
+.nojekyll                    GitHub Pages で Jekyll 変換を無効化
 AGENTS.md                    設計判断・検証知見
 LICENSE                      アプリ本体の MIT ライセンス
 SECURITY.md                  脆弱性報告方針

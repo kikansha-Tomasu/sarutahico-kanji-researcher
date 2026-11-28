@@ -15,5 +15,8 @@
   - 残存レビュー対応（ローカル SRI、OCR 初期化の共有、通知のlive region 分離、
     Piper 取得の中断、CSP ヘッダーなど）導入前の状態です。ローカル SRI は
     `main.html` 側、CSP は `tools/serve.py` 側の変更です。
+- `README_before_github_pages_20261128.md` / `serve_before_github_pages_20261128.py`
+  - GitHub Pages 対応（`.nojekyll`、ルートの `index.html` リダイレクト、
+    開発サーバーの allowlist 更新、README の公開手順）導入前の状態です。
 
-現行の実装はリポジトリ直下の `main.html` と `tools/` のみを参照してください。
+現行の実装は、Pages のエントリがリポジトリ直下の `index.html`、アプリ本体が `main.html`、開発サーバーが `tools/` です。

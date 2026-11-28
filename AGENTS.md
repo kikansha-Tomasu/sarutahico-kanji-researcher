@@ -52,7 +52,7 @@
 - **年の漢数字は桁読みで `〇` を使う**（`2026年` → `二〇二六年`）。
   `零` は年表記に使わず、既存の `二零二六年` も `〇` へ正規化する。
   一般数値の `〇` と温度の `零下` は上流準拠で併存する。
-- 数字展開は `unicode-rbnf==2.4.0` を一時ディレクトリへ導入し、6,142 ケースと
+- 数字展開は `unicode-rbnf==2.4.0` を一時ディレクトリへ導入し、8,178 ケースと
   上位ギャップ集中ケースの期待値を `main.html` の純粋関数と照合済み
   （`FAIL: 0`）。整数は文字列の 4 桁グループで処理し、`Number` による丸めを
   避ける。RBNF に合わせ、`〇` は最下位グループの直前の空グループ、または
@@ -244,6 +244,28 @@
   scheme source を使う。CSP の host grammar は IPv6 literal を表現できず、
   `http://[::1]:*` は Chromium で無効な source として警告されるため使わない。
   loopback 制限はアプリ側の `getApiUrl()` が担う。
+
+## GitHub Pages 対応の知見
+- ルートに空の `.nojekyll` を置き、Jekyll 変換を無効化する。`main.html` に
+  Liquid 記法は無いが、Pages 側の変換に依存しないようにするため。
+- `index.html` は `main.html` への<meta refresh>とリンクだけを持つリダイレクト
+  ページで、アプリ本体は引き続き `main.html` 一枚だけ。プロジェクトサイトの
+  `https://<owner>.github.io/<repo>/` でも、ユーザーサイトのルートでも相対
+  リダイレクトで開ける。開発サーバーの allowlist にも `index.html` を追加し、
+  `/` も許可して `index.html` を配信する（ディレクトリ一覧は 404 のまま）。
+- `main.html` のアセット参照はすべて相対、`new URL('vendor/...', location.href)`
+  も現在の document URL 基準なのでリポジトリ名のサブパスでも解決する。
+  `<base>` を追加すると SRI/二次アセットの基準が変わるため追加しない。
+- Pages の MIME は mime-db 由来で、`.mjs` は `text/javascript`、`.wasm` は
+  `application/wasm`、`.gz` は `application/gzip`。`tools/serve.py` の
+  MIME 上書きや CSP・allowlist は Pages には反映されない。CI やカスタム
+  ヘッダーを前提にせず、通常の branch 公開（main / ルート）で動く構成にする。
+- GitHub Free では public リポジトリからのみ Pages を公開できる。private からの
+  公開には Pro / Team / Enterprise 等が必要（このリポジトリは public）。
+- Pages サイト自体は公開されるため、`backups/` や `tools/`、`AGENTS.md` を含む
+  リポジトリ全体が配信対象になる点に注意する。API モードは loopback 制限の
+  ままなので、Pages 版は API不要モードで使う。
+- Pages の有効化は GitHub 側の設定操作であり、push だけでは公開されない。
 
 ## 検証コマンド（Windows bash）
 ```bash
