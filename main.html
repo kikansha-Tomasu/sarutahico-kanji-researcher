@@ -117,6 +117,7 @@
         <div id="offlineInfo" style="font-size:12px;color:#666;margin-top:4px;">
           内蔵辞書 + Tesseract.js OCR で動作。API不要。
         </div>
+        <div id="fileWarning" style="display:none;margin-top:6px;font-size:12px;color:#8a1c1c;font-weight:700;" role="alert">file:// では同梱アセットを読み込めません。python tools/serve.py で起動してください。</div>
       </div>
 
       <div class="canvas-wrap panel">
@@ -153,7 +154,7 @@
         <div style="font-weight:700;color:var(--purple);">使い方</div>
         <ol style="margin:8px 0 0 18px;padding:0;color:#333;font-size:13px;">
           <li>画像を選ぶかキャンバスに手書きし、「漢字分析」を押します。</li>
-          <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書。アセットは同梱、無い場合はCDN取得。</li>
+          <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書。主要スクリプトは同梱、不足時のみCDN取得（補助ファイルは同梱必須）。</li>
           <li><b>API連携</b>: ローカルAIサーバーで高精度解析（任意）。</li>
         </ol>
       </div>
@@ -162,7 +163,7 @@
     <div class="right">
       <div class="panel result" id="resultPanel">
         <h2>解析結果</h2>
-        <div class="field"><b>読み取った漢字</b><div id="detectedKanji" style="font-size: 2em; font-weight: bold;">--</div></div>
+        <div class="field"><b>対象の漢字</b><div id="detectedKanji" style="font-size: 2em; font-weight: bold;">--</div></div>
         <div class="field"><b>意味</b><div id="meaning">--</div></div>
         <div class="field"><b>ピンイン</b><div id="pinyin">--</div></div>
         <div class="field"><b>例文</b><div id="example">--</div></div>
@@ -178,13 +179,13 @@
         <div class="field">
           <b>音声（漢字）</b>
           <div class="audio-row">
-            <button id="playPinyinBtn" class="play-btn" disabled>▶ 再生</button>
+            <button id="playPinyinBtn" class="play-btn" aria-label="漢字の読み上げを再生" disabled>▶ 再生</button>
           </div>
         </div>
         <div class="field">
           <b>音声（例文）</b>
           <div class="audio-row">
-            <button id="playExampleBtn" class="play-btn" disabled>▶ 再生</button>
+            <button id="playExampleBtn" class="play-btn" aria-label="例文の読み上げを再生" disabled>▶ 再生</button>
           </div>
         </div>
 
@@ -357,12 +358,44 @@
       return integerText;
     }
 
+    // Scan numeric tokens in one pass. Regex \d+ backtracking is quadratic on
+    // hostile long digit runs, while this stays linear and still expands very
+    // large numbers via spellChineseInteger's digit-reading fallback.
+    function replaceNumericRuns(text) {
+      let out = '';
+      let i = 0;
+      while (i < text.length) {
+        const start = i;
+        const signChar = text[i];
+        const sign = (signChar === '-' || signChar === '−') ? '-' : '';
+        if (sign) i += 1;
+        if (i >= text.length || !/\d/.test(text[i])) {
+          out += text.slice(start, i);
+          if (i < text.length) out += text[i++];
+          continue;
+        }
+        let integer = '';
+        while (i < text.length && /\d/.test(text[i])) integer += text[i++];
+        let fraction = '';
+        if (i < text.length && text[i] === '.') {
+          const dot = i;
+          i += 1;
+          let fractionDigits = '';
+          while (i < text.length && /\d/.test(text[i])) fractionDigits += text[i++];
+          if (fractionDigits) fraction = '.' + fractionDigits;
+          else i = dot;
+        }
+        out += spellChineseNumber(sign + integer + fraction);
+      }
+      return out;
+    }
+
     function expandChineseNumbers(text) {
       let source = String(text).replace(/[“”"]/g, '');
       // Thousands separators are punctuation, not digits: "1,000" is 一千.
       source = source.replace(/(\d)[,，](?=\d{3}(?!\d))/g, '$1');
       // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
-      source = source.replace(/([〇零一二三四五六七八九]+)\s*年/g, (_, year) => {
+      source = source.replace(/([〇零一二三四五六七八九]{1,64})\s*年/g, (_, year) => {
         return year.replace(/零/g, '〇') + '年';
       });
       source = source.replace(/(\d{4})\s*年/g, (match, year, offset) => {
@@ -370,14 +403,14 @@
         return year.split('').map(d => PINYIN_DIGITS[Number(d)]).join('') + '年';
       });
       // Temperatures and percentages follow piper1-gpl's number frontend.
-      source = source.replace(/([-−]?)(\d+(?:\.\d+)?)\s*(?:°\s*C|℃)/g, (_, sign, num) => {
+      source = source.replace(/([-−]?)(\d{1,64}(?:\.\d{1,32})?(?!\d))\s*(?:°\s*C|℃)/g, (_, sign, num) => {
         return (sign ? '零下' : '') + spellChineseNumber(num) + '度';
       });
-      source = source.replace(/(-?\d+(?:\.\d+)?|[零〇一二三四五六七八九十百千万亿两点]+)\s*(?:%|％)/g, (_, num) => {
+      source = source.replace(/(-?\d{1,64}(?:\.\d{1,32})?(?!\d)|[零〇一二三四五六七八九十百千万亿两点]{1,64})\s*(?:%|％)/g, (_, num) => {
         const words = /^-?\d/.test(num) ? spellChineseNumber(num) : num;
         return '百分之' + words;
       });
-      return source.replace(/-?\d+(?:\.\d+)?/g, match => spellChineseNumber(match));
+      return replaceNumericRuns(source);
     }
 
     // ---- 内蔵辞書（オフラインモード用） ----
@@ -768,6 +801,7 @@
     const apiModeBtn = document.getElementById('apiModeBtn');
     const apiSettings = document.getElementById('apiSettings');
     const offlineInfo = document.getElementById('offlineInfo');
+    const fileWarning = document.getElementById('fileWarning');
     const modeBadge = document.getElementById('modeBadge');
     const ocrBadge = document.getElementById('ocrBadge');
     const progressBar = document.getElementById('progressBar');
@@ -805,6 +839,7 @@
     let tesseractWorker = null;
     let tesseractReady = false;
     let tesseractOptions = null;
+    let progressHideTimer = null;
     let piperSession = null;
     let piperLoading = null;
     let activeAudio = null;
@@ -812,6 +847,10 @@
     let activeUtterance = null;
     let activeButton = null;
     let playbackToken = 0;
+
+    if (location.protocol === 'file:') {
+      fileWarning.style.display = 'block';
+    }
 
     // ---- モード切り替え ----
     function setMode(apiMode) {
@@ -996,8 +1035,17 @@
 
     // ---- プログレスバー ----
     function showProgress(show) {
+      clearTimeout(progressHideTimer);
+      progressHideTimer = null;
       progressBar.style.display = show ? 'block' : 'none';
       if (!show) progressFill.style.width = '0%';
+    }
+    function scheduleProgressHide(delay = 1000) {
+      clearTimeout(progressHideTimer);
+      progressHideTimer = setTimeout(() => {
+        progressHideTimer = null;
+        showProgress(false);
+      }, delay);
     }
     function setProgress(pct) {
       progressFill.style.width = pct + '%';
@@ -1149,7 +1197,7 @@
       const apiUrl = getApiUrl();
       if (!apiUrl) {
         showMessage('APIのURLが設定されていません。');
-        return '';
+        return null;
       }
       const prompt = "画像に写っている中国語の漢字を1文字だけ抽出して、その文字だけを返してください。他のテキストは一切含めないでください。";
       const messages = [{
@@ -1182,7 +1230,7 @@
       } catch (err) {
         console.error('API Error:', err);
         showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーが起動しているか確認してください。');
-        return '';
+        return null;
       }
     }
 
@@ -1232,10 +1280,10 @@
     }
 
     // ---- Tesseract.js OCR (高性能オフラインOCR) ----
-    async function initTesseract() {
+    async function initTesseract({ manageProgress = true } = {}) {
       if (tesseractReady) return true;
       try {
-        showProgress(true);
+        if (manageProgress) showProgress(true);
         setProgress(10);
         const tesseractAsset = await resolveAsset('vendor/tesseract/tesseract.min.js', TESSERACT_CDN);
         if (!(await requireLocalAssets(TESSERACT_LOCAL_ASSETS))) {
@@ -1260,17 +1308,17 @@
         tesseractWorker = await Tesseract.createWorker('chi_sim', 1, tesseractOptions);
         setProgress(100);
         tesseractReady = true;
-        showProgress(false);
+        if (manageProgress) showProgress(false);
         return true;
       } catch (err) {
         console.error('Tesseract init error:', err);
-        showProgress(false);
+        if (manageProgress) showProgress(false);
         return false;
       }
     }
 
-    async function runOCR(imageDataUrl) {
-      const ok = await initTesseract();
+    async function runOCR(imageDataUrl, { manageProgress = true } = {}) {
+      const ok = await initTesseract({ manageProgress });
       if (!ok || !tesseractWorker) {
         throw new Error('Tesseract初期化失敗');
       }
@@ -1395,10 +1443,16 @@
       updateTtsControls();
     });
 
+    const PLAYBACK_LABELS = new Map([
+      [playPinyinBtn, '漢字の読み上げ'],
+      [playExampleBtn, '例文の読み上げ']
+    ]);
+
     function resetPlaybackUI() {
       [playPinyinBtn, playExampleBtn].forEach(b => {
         b.classList.remove('playing');
         b.textContent = '▶ 再生';
+        b.setAttribute('aria-label', (PLAYBACK_LABELS.get(b) || '音声') + 'を再生');
       });
       activeButton = null;
     }
@@ -1409,6 +1463,7 @@
       activeButton = btn;
       btn.classList.add('playing');
       btn.textContent = '⏹ 停止';
+      btn.setAttribute('aria-label', (PLAYBACK_LABELS.get(btn) || '音声') + 'を停止');
       return true;
     }
 
@@ -1524,8 +1579,17 @@
       if (cache) {
         try {
           const hit = await cache.match(cacheKey);
-          if (hit) return await hit.blob();
-        } catch (e) { /* ignore cache read errors */ }
+          if (hit) {
+            const cachedBlob = await hit.blob();
+            if (integrity) await verifyBlobIntegrity(cachedBlob, integrity);
+            return cachedBlob;
+          }
+        } catch (e) {
+          // A tampered or unreadable cache entry must not be trusted. Drop it
+          // and fall through to a fresh, integrity-verified download.
+          console.warn('Cached Piper asset rejected:', e);
+          try { await cache.delete(cacheKey); } catch (deleteErr) { /* ignore */ }
+        }
       }
 
       const res = await fetch(url);
@@ -1794,7 +1858,10 @@
         voiceSelect.value = browserVoiceDefault() || '';
         updateSelectedVoice();
         updateTtsControls();
-        showMessage('ニューラル音声の準備に失敗したため、ブラウザ音声で再生します。', 5000);
+        const noPhonemes = err && err.message === 'No phonemes recognized by the voice model';
+        showMessage(noPhonemes
+          ? 'この文字は中国語音声で読み上げられません。ブラウザ音声で再生します。'
+          : 'ニューラル音声の準備に失敗したため、ブラウザ音声で再生します。', 5000);
         speakWithBrowser(text, btn, token, 'ブラウザ音声に切り替えて再生中');
       }
     }
@@ -1830,7 +1897,8 @@
       if (exampleChinese.includes('/')) {
         exampleChinese = exampleChinese.split('/')[0].trim();
       }
-      currentExampleText = (exampleChinese && exampleChinese !== '--') ? exampleChinese : '';
+      const unavailableExample = /^（[^）]*未登録[^）]*）$/.test(exampleChinese);
+      currentExampleText = (exampleChinese && exampleChinese !== '--' && !unavailableExample) ? exampleChinese : '';
       playPinyinBtn.disabled = !currentKanjiText;
       playExampleBtn.disabled = !currentExampleText;
     }
@@ -1877,6 +1945,10 @@
         if (useApiMode) {
           // APIモード
           const kanji = await extractKanjiFromImage(dataUrl);
+          if (kanji === null) {
+            meaningEl.textContent = messageBox.textContent || 'APIの設定を確認してください。';
+            return;
+          }
           if (!kanji) {
             meaningEl.textContent = '漢字が見つかりませんでした。はっきりとした文字を描くか、別の画像を試してください。';
             return;
@@ -1895,7 +1967,7 @@
             const processedDataUrl = preprocessCanvas();
             setProgress(15);
 
-            const kanji = await runOCR(processedDataUrl);
+            const kanji = await runOCR(processedDataUrl, { manageProgress: false });
             setProgress(90);
 
             if (kanji) {
@@ -1908,7 +1980,7 @@
               }
             } else {
               // Fallback: try original image without preprocessing
-              const kanji2 = await runOCR(dataUrl);
+              const kanji2 = await runOCR(dataUrl, { manageProgress: false });
               if (kanji2) {
                 const result = lookupDictionary(kanji2);
                 displayResult(result);
@@ -1919,7 +1991,7 @@
               }
             }
             setProgress(100);
-            setTimeout(() => showProgress(false), 1000);
+            scheduleProgressHide(1000);
           } catch (ocrErr) {
             console.error('OCR Error:', ocrErr);
             showProgress(false);

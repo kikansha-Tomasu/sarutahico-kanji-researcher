@@ -258,6 +258,11 @@ def check_asset_call_sites(html: str) -> list[str]:
     declared = set(re.findall(r"^\s*\[([^\]]+)\]\s*:\s*'sha256-", html, re.M))
     declared = {resolve(url) for url in declared}
     failures: list[str] = []
+    # A literal remote loadScript() would bypass resolveAsset() entirely.
+    for match in re.finditer(r"loadScript\(\s*'([^']+)'", html):
+        url = resolve(match.group(1))
+        if url not in declared:
+            failures.append(f"loadScript literal URL has no CDN_SRI entry: {url}")
     calls = _call_arguments(html, "resolveAsset")
     if not calls:
         return ["no await resolveAsset(...) call found in main.html"]
@@ -308,7 +313,8 @@ def check_local_asset_arrays(html: str) -> list[str]:
 
 def check_git_tracking() -> list[str]:
     """Report manifest assets that are present but not committed to git."""
-    if not os.path.isdir(os.path.join(ROOT, ".git")):
+    # Git worktrees store .git as a file, so isdir() would skip the check there.
+    if not os.path.exists(os.path.join(ROOT, ".git")):
         return []
     try:
         tracked = set(subprocess.check_output(

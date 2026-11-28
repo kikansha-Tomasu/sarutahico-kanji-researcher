@@ -7,5 +7,7 @@
   - ロールバック時の参考としてのみ保持しています。
 - `main_before_piper_20261127.html`
   - Piper 導入前の状態です。
+- `main_before_residual_fix_20261128.html`
+  - UI・進捗表示・OCR・キャッシュ・数値展開の残存修正前の状態です。
 
 現行の実装はリポジトリ直下の `main.html` と `tools/fetch-assets.py` のみを参照してください。
