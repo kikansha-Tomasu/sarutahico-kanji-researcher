@@ -14,7 +14,6 @@ import argparse
 import functools
 import http.server
 import os
-import socketserver
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -101,7 +100,7 @@ def main() -> None:
     args = parser.parse_args()
 
     handler = functools.partial(Handler, directory=ROOT)
-    with socketserver.TCPServer((args.bind, args.port), handler) as httpd:
+    with http.server.ThreadingHTTPServer((args.bind, args.port), handler) as httpd:
         print(f"Serving {ROOT} at http://{args.bind}:{args.port}/ (also /main.html)", flush=True)
         httpd.serve_forever()
 

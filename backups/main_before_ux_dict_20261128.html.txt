@@ -1,0 +1,2633 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SARUTAHICO - 漢字解析</title>
+  <link rel="icon" type="image/png" href="sarutahico_logo.png" />
+  <style>
+    :root{
+      --red:#C81E2D;
+      --gold:#8A6300;
+      --green:#007A4D;
+      --ivory:#F6F3EE;
+      --purple:#75608F;
+      --bg:var(--ivory);
+      --font-sans: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+    }
+    *{box-sizing:border-box}
+    .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-sans);color:#222}
+    .app,.left,.right,header{min-width:0}
+    .app{max-width:1100px;margin:28px auto;padding:22px;border-radius:14px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,0.08);display:grid;grid-template-columns:420px 1fr;gap:22px}
+
+    header{grid-column:1/-1;display:flex;align-items:center;gap:14px}
+    header img.logo{width:64px;height:64px;object-fit:contain}
+    header h1{margin:0;font-size:22px;color:var(--purple);letter-spacing:1px}
+
+    .left{display:flex;flex-direction:column;gap:12px}
+    .panel{padding:14px;border-radius:10px;background:#fcfcfc;border:2px solid rgba(0,0,0,0.03)}
+
+    .canvas-wrap{background:#fff;padding:16px;border-radius:10px;border:3px solid var(--gold);display:flex;flex-direction:column;align-items:center}
+    canvas#drawCanvas{background:#fff;width:360px;height:360px;border:2px solid #ddd;border-radius:6px; touch-action: none; cursor:crosshair;}
+    .canvas-stage{position:relative;display:inline-block;max-width:100%;}
+    #kbCursor{position:absolute;display:none;width:18px;height:18px;border:2px solid var(--purple);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 0 1px #fff;}
+    #kbCursor.visible{display:block;}
+
+    .tools{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .btn{padding:10px 14px;border-radius:10px;border:none;font-weight:600;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,0.08); transition: all 0.2s; font-size:14px;}
+    .btn:disabled { background: #ccc; cursor: not-allowed; opacity:0.6; }
+    .btn[aria-disabled="true"] { opacity:0.65; cursor:not-allowed; }
+    input[type="range"] { height:44px; touch-action:manipulation; }
+    .primary{background:var(--red);color:#fff}
+    .file-btn{background:var(--green);color:#fff}
+    .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
+    .tool-btn{background:var(--ivory);border:2px solid #eee;color:#333}
+    .tool-btn.selected{box-shadow:inset 0 0 0 2px var(--purple); background:#f0ecf5;}
+    .dim{filter:brightness(0.85)}
+    .mode-btn{background:var(--purple);color:#fff;font-size:13px;padding:8px 12px;}
+
+    .right{display:flex;flex-direction:column;gap:12px}
+    .result h2{margin:0 0 8px 0;color:var(--purple)}
+    .field{margin-bottom:12px}
+    .field b{display:block;margin-bottom:6px; color: #555;}
+    .field div { min-height: 20px; padding: 4px; word-break:break-word; }
+    textarea, input[type=text], select, input[type=number]{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;background:#fff; font-family:inherit;}
+    .manual-input-row input,.tts-controls select{min-width:0;max-width:100%;}
+    .audio-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+    .play-btn{padding:8px 16px;border-radius:8px;border:none;font-weight:600;cursor:pointer;background:var(--purple);color:#fff;font-size:13px; transition:all 0.2s;}
+    .play-btn:disabled{background:#ccc;cursor:not-allowed;opacity:0.6;}
+    .play-btn.playing{background:var(--green);}
+
+    .message-box {
+      display: block; position: fixed; top: 20px; left: 50%; transform: translate(-50%,-200%);
+      opacity: 0; visibility: hidden; pointer-events: none;
+      background-color: var(--red); color: white; padding: 16px 24px; border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 1000; max-width:90vw;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    .message-box.visible{transform:translate(-50%,0);opacity:1;visibility:visible;}
+
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .color-picker{display:flex;gap:8px;align-items:center;}
+    .color-dot{width:44px;height:44px;border-radius:50%;border:2px solid #ddd;cursor:pointer; transition:transform 0.15s;}
+    .color-dot.selected{transform:scale(1.2);border-color:var(--purple);}
+    .size-slider{width:120px;}
+
+    .manual-input-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+    .manual-input-row input{flex:1;}
+    .manual-input-row button{flex-shrink:0;}
+
+    .mode-toggle{display:flex;gap:4px;margin-bottom:8px;}
+    .mode-toggle button{flex:1;padding:8px;border-radius:8px;border:2px solid #ddd;background:#fff;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.2s;}
+    .mode-toggle button.active{background:var(--purple);color:#fff;border-color:var(--purple);}
+    .field-error{font-size:11px;color:#8a1c1c;margin:4px 0 0;font-weight:700;}
+
+    .tts-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;}
+    .tts-controls label{font-size:12px;color:#555;}
+    .tts-controls input[type=range]{width:80px;}
+    .tts-controls input:disabled{opacity:.4;}
+    .tts-controls span{font-size:12px;color:#555;min-width:28px;}
+    .tts-status{font-size:11px;color:#666;min-height:14px;margin-top:6px;}
+
+    .dictionary-badge{display:inline-block;background:var(--green);color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;margin-left:8px;}
+    .ocr-badge{display:inline-block;background:var(--gold);color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;margin-left:4px;}
+
+    .progress-bar{width:100%;height:4px;background:#eee;border-radius:2px;overflow:hidden;margin-top:8px;display:none;}
+    .progress-bar .fill{height:100%;background:var(--purple);width:0%;transition:width 0.3s;}
+
+    @media (max-width:980px){
+      .app{grid-template-columns:1fr;max-width:720px}
+    }
+    @media (max-width:640px){
+      .app{max-width:100%;padding:12px;gap:12px}
+      header h1{font-size:18px}
+      canvas#drawCanvas{width:100%;max-width:360px;height:auto;aspect-ratio:1}
+      .file-btn:focus-within{outline:2px solid var(--purple);outline-offset:2px}
+    }
+    @media (prefers-reduced-motion: reduce){
+      *,*::before,*::after{animation-duration:0.001ms!important;animation-iteration-count:1!important;transition-duration:0.001ms!important;scroll-behavior:auto!important;}
+    }
+
+    footer{grid-column:1/-1;text-align:right;color:#666;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="app" role="main" aria-label="SARUTAHICO 漢字解析アプリ">
+    <header role="presentation">
+      <img class="logo" src="sarutahico_logo.png" alt="SARUTAHICO ロゴ">
+      <div>
+        <h1>SARUTAHICO <span class="dictionary-badge" id="modeBadge">API不要</span><span class="ocr-badge" id="ocrBadge">Tesseract.js</span></h1>
+        <div style="font-size:12px;color:#555">手書き・画像から漢字を読み取り、意味・ピンイン・例文を表示</div>
+      </div>
+    </header>
+
+    <div class="left">
+       <div class="panel">
+        <div class="mode-toggle">
+          <button id="offlineModeBtn" class="active" aria-pressed="true">📖 内蔵辞書</button>
+          <button id="apiModeBtn" aria-pressed="false">🔌 API連携</button>
+        </div>
+        <div id="apiSettings" style="display:none;">
+          <label for="apiUrl" style="font-weight:bold; color:var(--purple);">OpenAI Compatible API Base URL</label>
+          <input type="text" id="apiUrl" value="http://127.0.0.1:1234/v1" aria-describedby="apiUrlHelp apiUrlError" style="margin-top: 4px;">
+          <p id="apiUrlHelp" style="font-size:11px; color:#666; margin:4px 0 0;">ローカル（127.0.0.1 / localhost / ::1）で稼働しているOpenAI互換APIのURLを指定してください。</p>
+          <p id="apiUrlError" class="field-error" hidden>ローカルの http(s) URLを入力してください。外部ホストと認証情報付きURLは使用できません。</p>
+        </div>
+        <div id="offlineInfo" style="font-size:12px;color:#666;margin-top:4px;">
+          内蔵辞書 + Tesseract.js OCR で動作。API不要。
+        </div>
+        <div id="fileWarning" style="display:none;margin-top:6px;font-size:12px;color:#8a1c1c;font-weight:700;" role="alert">file:// では同梱アセットを読み込めません。python tools/serve.py で起動してください。</div>
+      </div>
+
+      <div class="canvas-wrap panel">
+        <div class="canvas-stage" id="canvasStage">
+          <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス" tabindex="0" role="application" aria-label="手書きキャンバス" aria-describedby="canvasKeyboardHelp"></canvas>
+          <div id="kbCursor" aria-hidden="true"></div>
+        </div>
+        <div id="canvasKeyboardHelp" class="visually-hidden">フォーカス中に矢印キーでカーソルを移動し、スペースまたはEnterで描画の開始・終了、Escで現在の線を取り消し、Ctrl+Zで元に戻します。Tabでキャンバスから出られます。</div>
+        <div id="kbDrawStatus" class="visually-hidden" aria-live="polite"></div>
+        <div class="progress-bar" id="progressBar" role="progressbar" aria-label="OCRの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="progressFill"></div></div>
+        <div id="analysisStatus" class="visually-hidden" aria-live="polite"></div>
+        <div class="tools">
+          <label class="btn file-btn" style="display:inline-flex;align-items:center;gap:8px;">
+            ファイルを選択
+            <input id="fileInput" class="visually-hidden" type="file" accept="image/*">
+          </label>
+          <button id="analyzeBtn" class="btn primary">漢字分析</button>
+          <button id="undoBtn" class="btn tool-btn" title="Ctrl+Z">元に戻す</button>
+        </div>
+        <div class="tools" style="margin-top:6px;">
+          <button id="penBtn" class="btn tool-btn selected" aria-pressed="true">ペン</button>
+          <button id="eraserBtn" class="btn tool-btn dim" aria-pressed="false">消しゴム</button>
+          <button id="clearBtn" class="btn tool-btn">すべて消去</button>
+          <div class="color-picker" style="margin-left:8px;">
+            <span style="font-size:12px;color:#555;">色:</span>
+            <div class="color-dot selected" data-color="#000" style="background:#000;" title="黒" role="button" tabindex="0" aria-label="黒" aria-pressed="true"></div>
+            <div class="color-dot" data-color="#ED2939" style="background:#ED2939;" title="赤" role="button" tabindex="0" aria-label="赤" aria-pressed="false"></div>
+            <div class="color-dot" data-color="#0066CC" style="background:#0066CC;" title="青" role="button" tabindex="0" aria-label="青" aria-pressed="false"></div>
+            <div class="color-dot" data-color="#00A86B" style="background:#00A86B;" title="緑" role="button" tabindex="0" aria-label="緑" aria-pressed="false"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+            <span style="font-size:12px;color:#555;">太さ:</span>
+            <input type="range" id="penSizeSlider" class="size-slider" min="4" max="32" value="12" aria-label="ペンの太さ">
+            <span id="penSizeLabel" style="font-size:12px;color:#555;min-width:24px;">12</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="border:3px solid var(--green);">
+        <div style="font-weight:700;color:var(--purple);">使い方</div>
+        <ol style="margin:8px 0 0 18px;padding:0;color:#333;font-size:13px;">
+          <li>画像を選ぶかキャンバスに手書きし、「漢字分析」を押します。キーボードではキャンバスにフォーカスして矢印キーとスペースでも描画できます。</li>
+          <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書。主要スクリプトは同梱、不足時のみCDN取得（補助ファイルは同梱必須）。</li>
+          <li><b>API連携</b>: ローカルAIサーバーで高精度解析（任意）。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="panel result" id="resultPanel">
+        <h2>解析結果</h2>
+        <div class="field"><b>対象の漢字</b><div id="detectedKanji" lang="zh-CN" style="font-size: 2em; font-weight: bold;">--</div></div>
+        <div class="field"><b>意味</b><div id="meaning">--</div></div>
+        <div class="field"><b>ピンイン</b><div id="pinyin" lang="zh-CN">--</div></div>
+        <div class="field"><b>例文</b><div id="example" lang="zh-CN">--</div></div>
+        <div id="resultLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+        <div class="field">
+          <label for="manualKanjiInput" style="display:block;margin-bottom:6px;font-weight:bold;color:#555;">手動入力（API不要）</label>
+          <div class="manual-input-row">
+            <input type="text" id="manualKanjiInput" lang="zh-CN" placeholder="漢字を1文字入力" maxlength="1" style="font-size:1.5em;text-align:center;">
+            <button id="lookupBtn" class="btn primary" style="padding:8px 16px;">辞書検索</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <b>音声（漢字）</b>
+          <div class="audio-row">
+            <button id="playPinyinBtn" class="play-btn" aria-label="漢字の読み上げを再生" disabled>▶ 再生</button>
+          </div>
+        </div>
+        <div class="field">
+          <b>音声（例文）</b>
+          <div class="audio-row">
+            <button id="playExampleBtn" class="play-btn" aria-label="例文の読み上げを再生" disabled>▶ 再生</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <b>音声設定</b>
+          <div class="tts-controls">
+            <label for="voiceSelect">音声:</label>
+            <select id="voiceSelect" style="flex:1;" title="Piper の中国語音声は CC0 学習データの chaowen を使用します。">
+              <option value="">読み込み中...</option>
+            </select>
+          </div>
+          <div class="tts-controls" style="margin-top:6px;">
+            <label for="rateSlider">速度:</label>
+            <input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="0.9">
+            <span id="rateLabel">0.9</span>
+            <label for="pitchSlider" style="margin-left:8px;">音程:</label>
+            <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1.0">
+            <span id="pitchLabel">1.0</span>
+          </div>
+          <div id="ttsStatus" class="tts-status" aria-live="polite">Piperは同梱モデルを使用します（API不要）</div>
+        </div>
+      </div>
+    </div>
+
+    <footer role="presentation">© SARUTAHICO</footer>
+  </div>
+  <div id="messageBox" class="message-box" aria-hidden="true"></div>
+  <div id="messageLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <script>
+    // ---- 設定 ----
+    const GPT_OSS_MODEL = 'openai/gpt-oss-20b';
+    const QWEN_VL_MODEL = 'qwen2.5-vl-3b-instruct';
+
+    // Piper / ONNX Runtime Web（ブラウザ内ニューラルTTS。音声データは外部APIに送信しない）
+    const ORT_BASE = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+    const PINYIN_PRO_BASE = 'https://cdn.jsdelivr.net/npm/pinyin-pro@3.29.5/dist/';
+    const PIPER_VOICES_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
+    const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    // Subresource Integrity for the CDN fallback scripts. Hashes are of the
+    // exact files mirrored in vendor/ and verified by tools/fetch-assets.py.
+    const CDN_SRI = {
+      [TESSERACT_CDN]: 'sha256-qOKZGNCYsrBuEBK9rv+0rsBEXF1WVHCQI+C9H0QqgOg=',
+      [ORT_BASE + 'ort.min.js']: 'sha256-kk5Pzf32mszP89Ak1uGtP0HKhY0n/E3Vn8SSfdkz59s=',
+      [PINYIN_PRO_BASE + 'index.js']: 'sha256-pIgXNHB2is4HTDxP/7uIDoNSOzqpWYqBR8kw5/LVx9w='
+    };
+    // Tesseract.js / ORT load these files themselves, so SRI cannot cover them.
+    // When the main script falls back to a CDN they must still exist locally;
+    // otherwise we fail closed instead of executing unverified remote code.
+    const TESSERACT_LOCAL_ASSETS = [
+      'vendor/tesseract/worker.min.js',
+      'vendor/tesseract/core/tesseract-core.wasm.js',
+      'vendor/tesseract/core/tesseract-core.wasm',
+      'vendor/tesseract/core/tesseract-core-simd.wasm.js',
+      'vendor/tesseract/core/tesseract-core-simd.wasm',
+      'vendor/tesseract/core/tesseract-core-lstm.wasm.js',
+      'vendor/tesseract/core/tesseract-core-lstm.wasm',
+      'vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
+      'vendor/tesseract/core/tesseract-core-simd-lstm.wasm',
+      'vendor/tesseract/lang/chi_sim.traineddata.gz'
+    ];
+    const ORT_LOCAL_ASSETS = [
+      'vendor/ort/ort-wasm-simd-threaded.mjs',
+      'vendor/ort/ort-wasm-simd-threaded.wasm',
+      'vendor/ort/ort-wasm-simd-threaded.jsep.mjs',
+      'vendor/ort/ort-wasm-simd-threaded.jsep.wasm'
+    ];
+    // v1: removed huayan model. v2: unverified Hugging Face downloads.
+    // v3: cache keys include SRI; only verified blobs are stored.
+    const PIPER_CACHE_NAME = 'sarutahico-piper-v3';
+    const API_TIMEOUT_MS = 15000;
+    const PIPER_FETCH_TIMEOUT_MS = 60000;
+    // ライセンス: ORT / pinyin-pro は MIT、chaowen の学習データは CC0。
+    const PIPER_VOICES = {
+      'piper:medium': { path: 'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium', label: '高品質', note: 'CC0・モデル約63MB' }
+    };
+    // SRI for the optional Hugging Face fallback (hashes of the vendored files).
+    // A remote model/config is only used after its SHA-256 matches exactly.
+    const PIPER_ASSET_SRI = {
+      'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx': 'sha256-g6UmhhatCqLT4rZxWIJLXiOyTglzRzziiFnAWUV7gk4=',
+      'zh/zh_CN/chaowen/medium/zh_CN-chaowen-medium.onnx.json': 'sha256-SEdwQrpfB9wfEKxTWiXyG7ag+cQFgdL20M5fUaHTR6Y='
+    };
+    const PINYIN_INITIALS = ['zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h', 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w'];
+    // Matches piper1-gpl phonemize_chinese.py::GROUP_END_PHONEMES.
+    const PIPER_GROUP_END = new Set(['1', '2', '3', '4', '5', '。', '？', '！', '.', '?', '!', '—', '…', '、', '，', '：', '；', ',', ':', ';', ' ']);
+    // Years are read digit-by-digit and use 〇, never 零.
+    const PINYIN_DIGITS = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+    const DEFAULT_VOICE = 'piper:medium';
+
+    // ---- Chinese number expansion (matches unicode_rbnf 2.4.0 "zh" up to 京) ----
+    // CLDR/unicode_rbnf only defines units through 京 (10^16). Beyond that we
+    // use the classical Chinese large-number names so digit groups never lose
+    // their unit and produce a garbled reading.
+    const CHINESE_GROUP_UNITS = [
+      '', '万', '亿', '兆', '京', '垓', '秭', '穰', '沟', '涧', '正', '载', '极'
+    ];
+
+    function spellUnderTenThousand(value, leadingOne = false) {
+      const digits = PINYIN_DIGITS;
+      let out = '';
+      const thousands = Math.floor(value / 1000);
+      if (thousands) out += digits[thousands] + '千';
+      let rest = value % 1000;
+      const hundreds = Math.floor(rest / 100);
+      if (hundreds) {
+        out += digits[hundreds] + '百';
+        rest %= 100;
+        if (rest === 0) return out;
+        if (rest < 10) out += '〇';
+      } else if (thousands && rest > 0) {
+        out += '〇';
+      }
+      const tens = Math.floor(rest / 10);
+      if (tens) {
+        // Standalone 10-19 is 十/十一, but after a higher unit it is 一十/一十一.
+        if (tens !== 1 || out || leadingOne) out += digits[tens];
+        out += '十';
+      }
+      const ones = rest % 10;
+      if (ones) out += digits[ones];
+      return out || '〇';
+    }
+
+    // Group the digit string instead of using Number so large values are not
+    // rounded before they are spelled out.
+    function spellChineseInteger(value) {
+      const digits = String(value).replace(/^0+(?=\d)/, '');
+      if (digits === '0') return '〇';
+      // No named unit exists above 极 (10^48). Digit-by-digit reading is
+      // faithful; omitting the unit would silently corrupt the value.
+      if (Math.ceil(digits.length / 4) > CHINESE_GROUP_UNITS.length) {
+        return Array.from(digits, d => PINYIN_DIGITS[Number(d)]).join('');
+      }
+      const groups = [];
+      for (let end = digits.length; end > 0; end -= 4) {
+        groups.push(Number(digits.slice(Math.max(0, end - 4), end)));
+      }
+      let out = '';
+      let previousIndex = groups.length;
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const group = groups[i];
+        if (!group) continue;
+        // RBNF inserts 〇 before a small final group and after skipped groups.
+        // A single 〇 covers both cases at once.
+        // RBNF only inserts the gap 〇 immediately before the lowest group.
+        const hasGap = i === 0 && previousIndex - i > 1;
+        const smallFinal = i === 0 && Boolean(out) && group < 1000;
+        if (out && (hasGap || smallFinal)) out += '〇';
+        const fullTens = i === 0 && Boolean(out) && group >= 10 && group < 20;
+        out += spellUnderTenThousand(group, fullTens) + (CHINESE_GROUP_UNITS[i] || '');
+        previousIndex = i;
+      }
+      return out || '〇';
+    }
+
+    function spellChineseNumber(raw) {
+      const source = String(raw).trim();
+      const negative = /^-\s*/.test(source);
+      const unsigned = source.replace(/^[-+]\s*/, '');
+      const parts = unsigned.split('.');
+      const integerDigits = parts[0] || '0';
+      const integerText = spellChineseInteger(integerDigits);
+      const fraction = parts.length > 1 ? parts[1] : '';
+      const fractionHasDigits = Boolean(fraction) && !/^0+$/.test(fraction);
+      if (negative) {
+        // RBNF drops negative fractions and renders -0 as 〇.
+        if (/^0+$/.test(integerDigits)) return fractionHasDigits ? '负' : '〇';
+        return '负' + integerText;
+      }
+      if (fractionHasDigits) {
+        return integerText + '点' + Array.from(fraction, d => PINYIN_DIGITS[Number(d)]).join('');
+      }
+      return integerText;
+    }
+
+    // Numeric years, temperatures and percentages are resolved here rather
+    // than with /\d+(?:\.\d+)?\s*unit/ regexes: those backtrack across the
+    // whole digit run whenever the unit is absent, which is quadratic.
+    function matchNumericUnit(text, index) {
+      let j = index;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j >= text.length) return null;
+      if (text[j] === '年') return { type: 'year', end: j + 1 };
+      if (text[j] === '%' || text[j] === '％') return { type: 'percent', end: j + 1 };
+      if (text[j] === '℃') return { type: 'temp', end: j + 1 };
+      if (text[j] === '°') {
+        let k = j + 1;
+        while (k < text.length && /\s/.test(text[k])) k++;
+        if (k < text.length && text[k] === 'C') return { type: 'temp', end: k + 1 };
+      }
+      return null;
+    }
+
+    function replaceNumericRuns(text) {
+      let out = '';
+      let i = 0;
+      while (i < text.length) {
+        if (!/\d/.test(text[i]) && text[i] !== '-' && text[i] !== '−') {
+          const plainStart = i;
+          while (i < text.length && !/\d/.test(text[i]) && text[i] !== '-' && text[i] !== '−') i++;
+          out += text.slice(plainStart, i);
+          continue;
+        }
+        const start = i;
+        // Preserve earlier signs verbatim and let the last one drive the
+        // negative reading: --1% -> -百分之负一 (same as the old regexes).
+        while (i < text.length && (text[i] === '-' || text[i] === '−')) i++;
+        const signRun = text.slice(start, i);
+        const sign = signRun ? '-' : '';
+        const prefixSigns = signRun.slice(0, -1);
+        const multipleSigns = signRun.length > 1;
+        if (signRun) {
+          // A sign separated from its digits by spaces still applies to the
+          // following number ("- 5%" -> 百分之负五). Keep the gap only when
+          // no digit follows it.
+          while (i < text.length && /\s/.test(text[i])) i++;
+        }
+        if (i >= text.length || !/\d/.test(text[i])) {
+          out += text.slice(start, i);
+          continue;
+        }
+        let integer = '';
+        while (i < text.length && /\d/.test(text[i])) integer += text[i++];
+        let fraction = '';
+        if (i < text.length && text[i] === '.') {
+          const dot = i;
+          i += 1;
+          let fractionDigits = '';
+          while (i < text.length && /\d/.test(text[i])) fractionDigits += text[i++];
+          if (fractionDigits) fraction = '.' + fractionDigits;
+          else i = dot;
+        }
+        const unit = matchNumericUnit(text, i);
+        let spelled;
+        if (unit && unit.type === 'year' && !fraction && integer.length === 4) {
+          spelled = signRun + Array.from(integer, d => PINYIN_DIGITS[Number(d)]).join('') + '年';
+        } else {
+          if (unit && unit.type === 'temp') {
+            // The sign is expressed by 零下, so do not let spellChineseNumber
+            // emit 负 as well.
+            spelled = prefixSigns + (sign ? '零下' : '') + spellChineseNumber(integer + fraction) + '度';
+          } else if (unit && unit.type === 'percent') {
+            spelled = prefixSigns + '百分之' + spellChineseNumber(sign + integer + fraction);
+          } else {
+            // Old behavior for bare numbers: repeated signs stay verbatim and
+            // only a single sign contributes the negative reading.
+            spelled = (multipleSigns ? signRun : '') +
+              spellChineseNumber((multipleSigns ? '' : sign) + integer + fraction);
+            if (unit && unit.type === 'year') spelled += '年';
+          }
+        }
+        out += spelled;
+        if (unit) i = unit.end;
+      }
+      return out;
+    }
+
+    // Chinese-run year/percent units are scanned once. A regex like
+    // /[〇零...]+年/g backtracks the whole run at every start position when
+    // the unit is absent, which is quadratic on long text.
+    function expandChineseUnitRuns(source) {
+      const unitChar = /[〇零一二三四五六七八九十百千万亿两点]/;
+      const yearChar = /[〇零一二三四五六七八九]/;
+      let out = '';
+      let i = 0;
+      while (i < source.length) {
+        if (!unitChar.test(source[i])) {
+          const plainStart = i;
+          while (i < source.length && !unitChar.test(source[i])) i++;
+          out += source.slice(plainStart, i);
+          continue;
+        }
+        const start = i;
+        while (i < source.length && unitChar.test(source[i])) i++;
+        const run = source.slice(start, i);
+        let j = i;
+        while (j < source.length && /\s/.test(source[j])) j++;
+        if (j < source.length && source[j] === '年') {
+          // The old regex matched the trailing 年-eligible suffix of a run,
+          // e.g. 十三 -> 十三年 and 一百零一 -> 一百〇一年.
+          let suffixStart = run.length;
+          while (suffixStart > 0 && yearChar.test(run[suffixStart - 1])) suffixStart--;
+          if (suffixStart < run.length) {
+            out += run.slice(0, suffixStart) + run.slice(suffixStart).replace(/零/g, '〇') + '年';
+            i = j + 1;
+          } else {
+            out += run;
+          }
+        } else if (j < source.length && (source[j] === '%' || source[j] === '％')) {
+          out += '百分之' + run;
+          i = j + 1;
+        } else {
+          out += run;
+        }
+      }
+      return out;
+    }
+
+    function expandChineseNumbers(text) {
+      let source = String(text).replace(/[“”"]/g, '');
+      // Upstream RBNF/Python \d accepts full-width digits. Normalize them
+      // before any scanner runs so ７７% and ２０２６年 are expanded too.
+      source = source.replace(/[０-９]/g, ch => ch.normalize('NFKC'));
+      // Thousands separators are punctuation, not digits: "1,000" is 一千.
+      source = source.replace(/(\d)[,，](?=\d{3}(?!\d))/g, '$1');
+      // Written years use digit-by-digit 〇, never 零 (二零二六年 -> 二〇二六年).
+      // Numeric units are handled by replaceNumericRuns() in the same pass as
+      // bare numbers, so no regex can partially match a 65+ digit run.
+      source = expandChineseUnitRuns(source);
+      return replaceNumericRuns(source);
+    }
+
+    // ---- 内蔵辞書（オフラインモード用） ----
+    const KANJI_DICT = {
+      "爱":{"m":"愛、愛情","p":"ài","e":"我爱你 / 私はあなたを愛しています"},
+      "安":{"m":"安全、安心、安い","p":"ān","e":"安全 / 安全"},
+      "白":{"m":"白い、白","p":"bái","e":"白色 / 白色"},
+      "百":{"m":"百、100","p":"bǎi","e":"一百 / 100"},
+      "北":{"m":"北、北部","p":"běi","e":"北京 / 北京"},
+      "本":{"m":"本、もと","p":"běn","e":"根本 / 根本"},
+      "不":{"m":"〜ない、不","p":"bù","e":"不好 / よくない"},
+      "菜":{"m":"野菜、料理","p":"cài","e":"蔬菜 / 野菜"},
+      "草":{"m":"草、草木","p":"cǎo","e":"花草 / 花と草"},
+      "茶":{"m":"茶","p":"chá","e":"喝茶 / お茶を飲む"},
+      "长":{"m":"長い、長","p":"cháng","e":"很长 / とても長い"},
+      "车":{"m":"車","p":"chē","e":"汽车 / 自動車"},
+      "吃":{"m":"食べる","p":"chī","e":"吃饭 / 食事をする"},
+      "出":{"m":"出る、出す","p":"chū","e":"出去 / 外に出る"},
+      "春":{"m":"春","p":"chūn","e":"春天 / 春"},
+      "大":{"m":"大、大きい","p":"dà","e":"强大 / 強い"},
+      "刀":{"m":"刀、刃物","p":"dāo","e":"小刀 / 小刀"},
+      "电":{"m":"電気、電","p":"diàn","e":"电话 / 電話"},
+      "东":{"m":"東","p":"dōng","e":"东方 / 東方"},
+      "读":{"m":"読む","p":"dú","e":"读书 / 勉強する"},
+      "多":{"m":"多い、多","p":"duō","e":"很多 / たくさん"},
+      "耳":{"m":"耳","p":"ěr","e":"耳朵 / 耳"},
+      "二":{"m":"二、2","p":"èr","e":"二月 / 2月"},
+      "饭":{"m":"ご飯、食事","p":"fàn","e":"吃饭 / 食事をする"},
+      "方":{"m":"方、方向","p":"fāng","e":"地方 / 場所"},
+      "风":{"m":"風","p":"fēng","e":"刮风 / 風が吹く"},
+      "父":{"m":"父、父親","p":"fù","e":"父亲 / 父親"},
+      "高":{"m":"高、高い","p":"gāo","e":"高效 / 高い"},
+      "个":{"m":"個、1つ","p":"gè","e":"一个 / 1つ"},
+      "工":{"m":"工、工具","p":"gōng","e":"工具 / 工具"},
+      "公":{"m":"公、公共","p":"gōng","e":"公司 / 会社"},
+      "国":{"m":"国、国家","p":"guó","e":"中国 / 中国"},
+      "过":{"m":"過、過程","p":"guò","e":"过程 / 過程"},
+      "海":{"m":"海","p":"hǎi","e":"大海 / 大海"},
+      "好":{"m":"好、良い","p":"hǎo","e":"良好 / 良好"},
+      "喝":{"m":"飲む","p":"hē","e":"喝水 / 水を飲む"},
+      "和":{"m":"和、平和、と","p":"hé","e":"和平 / 平和"},
+      "河":{"m":"川、河","p":"hé","e":"黄河 / 黄河"},
+      "黑":{"m":"黒い、黒","p":"hēi","e":"黑色 / 黒色"},
+      "红":{"m":"赤い、紅","p":"hóng","e":"红色 / 赤色"},
+      "后":{"m":"後、あと","p":"hòu","e":"以后 / 以後"},
+      "花":{"m":"花","p":"huā","e":"鲜花 / 生花"},
+      "画":{"m":"絵、描く","p":"huà","e":"画画 / 絵を描く"},
+      "回":{"m":"戻る、回","p":"huí","e":"回去 / 戻る"},
+      "会":{"m":"会う、会","p":"huì","e":"开会 / 会議をする"},
+      "火":{"m":"火","p":"huǒ","e":"火车 / 列車"},
+      "几":{"m":"いくつ、何","p":"jǐ","e":"几个 / いくつ"},
+      "家":{"m":"家、家庭","p":"jiā","e":"回家 / 帰宅する"},
+      "见":{"m":"見る、会う","p":"jiàn","e":"看见 / 見える"},
+      "叫":{"m":"呼ぶ、言う","p":"jiào","e":"叫什么 / 何という"},
+      "教":{"m":"教える","p":"jiāo","e":"教书 / 教える"},
+      "九":{"m":"九、9","p":"jiǔ","e":"九月 / 9月"},
+      "开":{"m":"開ける","p":"kāi","e":"开门 / ドアを開ける"},
+      "看":{"m":"見る","p":"kàn","e":"看书 / 本を読む"},
+      "口":{"m":"口","p":"kǒu","e":"人口 / 人口"},
+      "来":{"m":"来る","p":"lái","e":"来吧 / 来てください"},
+      "老":{"m":"老いた、年老いた","p":"lǎo","e":"老人 / 老人"},
+      "乐":{"m":"楽しい、音楽","p":"lè","e":"快乐 / 幸せ"},
+      "冷":{"m":"冷たい","p":"lěng","e":"冷天 / 寒い日"},
+      "里":{"m":"中、内側","p":"lǐ","e":"家里 / 家の中"},
+      "六":{"m":"六、6","p":"liù","e":"六月 / 6月"},
+      "龙":{"m":"龍","p":"lóng","e":"龙年 / 辰年"},
+      "马":{"m":"馬","p":"mǎ","e":"马上 / すぐに"},
+      "妈":{"m":"母、お母さん","p":"mā","e":"妈妈 / お母さん"},
+      "买":{"m":"買う","p":"mǎi","e":"买东西 / 買い物する"},
+      "猫":{"m":"猫","p":"māo","e":"小猫 / 子猫"},
+      "门":{"m":"ドア、門","p":"mén","e":"开门 / ドアを開ける"},
+      "米":{"m":"米、稲","p":"mǐ","e":"大米 / お米"},
+      "明":{"m":"明、明らか","p":"míng","e":"证明 / 証明"},
+      "母":{"m":"母","p":"mǔ","e":"母亲 / 母親"},
+      "木":{"m":"木、樹木","p":"mù","e":"树木 / 樹木"},
+      "南":{"m":"南","p":"nán","e":"南方 / 南方"},
+      "男":{"m":"男、男性","p":"nán","e":"男人 / 男性"},
+      "年":{"m":"年","p":"nián","e":"今年 / 今年"},
+      "鸟":{"m":"鳥","p":"niǎo","e":"小鸟 / 小鳥"},
+      "女":{"m":"女、女性","p":"nǚ","e":"女人 / 女性"},
+      "七":{"m":"七、7","p":"qī","e":"七月 / 7月"},
+      "气":{"m":"気、空気","p":"qì","e":"天气 / 天気"},
+      "前":{"m":"前","p":"qián","e":"前面 / 前"},
+      "钱":{"m":"お金、金","p":"qián","e":"钱包 / 財布"},
+      "请":{"m":"お願いする、請","p":"qǐng","e":"请问 / お尋ねします"},
+      "秋":{"m":"秋","p":"qiū","e":"秋天 / 秋"},
+      "去":{"m":"行く","p":"qù","e":"去吧 / 行ってください"},
+      "热":{"m":"熱い","p":"rè","e":"天气热 / 暑い"},
+      "人":{"m":"人","p":"rén","e":"人类 / 人類"},
+      "日":{"m":"日、太陽","p":"rì","e":"日本 / 日本"},
+      "三":{"m":"三、3","p":"sān","e":"三天 / 3日間"},
+      "山":{"m":"山","p":"shān","e":"山水 / 山水"},
+      "上":{"m":"上、上へ","p":"shàng","e":"上面 / 上"},
+      "少":{"m":"少ない、少","p":"shǎo","e":"少数 / 少数"},
+      "生":{"m":"生、生命","p":"shēng","e":"生命 / 生命"},
+      "十":{"m":"十、10","p":"shí","e":"十月 / 10月"},
+      "时":{"m":"時、時間","p":"shí","e":"时期 / 期間"},
+      "食":{"m":"食、食べる","p":"shí","e":"食物 / 食物"},
+      "书":{"m":"本、書","p":"shū","e":"书本 / 本"},
+      "水":{"m":"水","p":"shuǐ","e":"喝水 / 水を飲む"},
+      "四":{"m":"四、4","p":"sì","e":"四月 / 4月"},
+      "他":{"m":"彼、他","p":"tā","e":"他们 / 彼ら"},
+      "她":{"m":"彼女","p":"tā","e":"她好 / 彼女は元気"},
+      "天":{"m":"天、空","p":"tiān","e":"天气 / 天気"},
+      "听":{"m":"聞く","p":"tīng","e":"听音乐 / 音楽を聴く"},
+      "土":{"m":"土","p":"tǔ","e":"土地 / 土地"},
+      "外":{"m":"外、外部","p":"wài","e":"外面 / 外"},
+      "万":{"m":"万、10000","p":"wàn","e":"一万 / 10000"},
+      "王":{"m":"王、王様","p":"wáng","e":"国王 / 王様"},
+      "为":{"m":"為、〜と思う","p":"wéi","e":"认为 / 〜と思う"},
+      "我":{"m":"私、我","p":"wǒ","e":"我们 / 私たち"},
+      "五":{"m":"五、5","p":"wǔ","e":"五月 / 5月"},
+      "西":{"m":"西","p":"xī","e":"西方 / 西方"},
+      "息":{"m":"休む、息","p":"xī","e":"休息 / 休憩"},
+      "下":{"m":"下、下へ","p":"xià","e":"下面 / 下"},
+      "先":{"m":"先、まず","p":"xiān","e":"先生 / 先生"},
+      "小":{"m":"小、小さい","p":"xiǎo","e":"弱小 / 弱い"},
+      "写":{"m":"書く","p":"xiě","e":"写字 / 文字を書く"},
+      "心":{"m":"心","p":"xīn","e":"小心 / 気をつけて"},
+      "新":{"m":"新しい、新","p":"xīn","e":"新闻 / ニュース"},
+      "星":{"m":"星","p":"xīng","e":"星星 / 星"},
+      "学":{"m":"学、学ぶ","p":"xué","e":"科学 / 科学"},
+      "雪":{"m":"雪","p":"xuě","e":"下雪 / 雪が降る"},
+      "牙":{"m":"歯、牙","p":"yá","e":"牙齿 / 歯"},
+      "言":{"m":"言う、言葉","p":"yán","e":"语言 / 言語"},
+      "羊":{"m":"羊","p":"yáng","e":"绵羊 / 羊"},
+      "要":{"m":"要、重要","p":"yào","e":"重要 / 重要"},
+      "一":{"m":"一、1","p":"yī","e":"一个 / 1つ"},
+      "衣":{"m":"服、衣","p":"yī","e":"衣服 / 服"},
+      "医":{"m":"医、医者","p":"yī","e":"医生 / 医者"},
+      "已":{"m":"すでに、既に","p":"yǐ","e":"已经 / もう"},
+      "以":{"m":"以、もって","p":"yǐ","e":"所以 / だから"},
+      "右":{"m":"右","p":"yòu","e":"右手 / 右手"},
+      "雨":{"m":"雨","p":"yǔ","e":"下雨 / 雨が降る"},
+      "月":{"m":"月","p":"yuè","e":"月亮 / 月"},
+      "在":{"m":"在る、いる","p":"zài","e":"在家 / 家にいる"},
+      "再":{"m":"再び、また","p":"zài","e":"再见 / さようなら"},
+      "早":{"m":"早い、早","p":"zǎo","e":"早上 / 朝"},
+      "这":{"m":"これ、この","p":"zhè","e":"这个 / これ"},
+      "中":{"m":"中、中国","p":"zhōng","e":"中国 / 中国"},
+      "重":{"m":"重、重要な","p":"zhòng","e":"重要 / 重要"},
+      "主":{"m":"主、主人","p":"zhǔ","e":"主要 / 主に"},
+      "子":{"m":"子、子ども","p":"zǐ","e":"孩子 / 子ども"},
+      "字":{"m":"字、文字","p":"zì","e":"汉字 / 漢字"},
+      "走":{"m":"歩く、走る","p":"zǒu","e":"走路 / 歩く"},
+      "左":{"m":"左","p":"zuǒ","e":"左手 / 左手"},
+      "做":{"m":"する、作る","p":"zuò","e":"做事 / 作業をする"},
+      "坐":{"m":"座る","p":"zuò","e":"坐下 / 座る"},
+      "作":{"m":"作、操作","p":"zuò","e":"操作 / 操作"},
+      "昨":{"m":"昨日","p":"zuó","e":"昨天 / 昨日"},
+      "全":{"m":"全、全部","p":"quán","e":"完全 / 完全"},
+      "两":{"m":"二つ、両","p":"liǎng","e":"两个 / 二つ"},
+      "很":{"m":"とても、非常に","p":"hěn","e":"很好 / とても良い"},
+      "没":{"m":"ない、〜ない","p":"méi","e":"没有 / ない"},
+      "想":{"m":"想、思う","p":"xiǎng","e":"想法 / 考え"},
+      "知":{"m":"知る","p":"zhī","e":"知道 / 知っている"},
+      "道":{"m":"道、道路","p":"dào","e":"道路 / 道路"},
+      "对":{"m":"正しい、対","p":"duì","e":"对了 / 正しい"},
+      "起":{"m":"起きる、起こす","p":"qǐ","e":"起床 / 起きる"},
+      "给":{"m":"与える、あげる","p":"gěi","e":"给我 / 私にください"},
+      "把":{"m":"〜を（目的語）","p":"bǎ","e":"把门关上 / ドアを閉める"},
+      "让":{"m":"させる、譲る","p":"ràng","e":"让我 / 私にさせる"},
+      "从":{"m":"〜から、従う","p":"cóng","e":"从这里 / ここから"},
+      "向":{"m":"向、〜へ","p":"xiàng","e":"方向 / 方向"},
+      "被":{"m":"〜される（受身）","p":"bèi","e":"被打 / 打たれる"},
+      "比":{"m":"比べる、より","p":"bǐ","e":"比以前 / 以前より"},
+      "跟":{"m":"〜と一緒に","p":"gēn","e":"跟我来 / 私についてきて"},
+      "离":{"m":"離れる","p":"lí","e":"离家 / 家から離れる"},
+      "往":{"m":"往、以前","p":"wǎng","e":"往往 / しばしば"},
+      "等":{"m":"待つ、等","p":"děng","e":"等待 / 待つ"},
+      "因":{"m":"因、理由","p":"yīn","e":"因为 / なぜなら"},
+      "果":{"m":"果、結果","p":"guǒ","e":"效果 / 効果"},
+      "然":{"m":"然、そう","p":"rán","e":"然而 / しかし"},
+      "所":{"m":"所、場所","p":"suǒ","e":"场所 / 場所"},
+      "经":{"m":"経、すでに","p":"jīng","e":"经常 / よく"},
+      "将":{"m":"将、〜するだろう","p":"jiāng","e":"将来 / 将来"},
+      "应":{"m":"応、べき","p":"yīng","e":"应该 / すべき"},
+      "该":{"m":"該、べき","p":"gāi","e":"应该 / すべき"},
+      "需":{"m":"需、必要","p":"xū","e":"需要 / 必要"},
+      "求":{"m":"求、求める","p":"qiú","e":"要求 / 要求"},
+      "与":{"m":"与、与える","p":"yǔ","e":"与其 / 〜よりは"},
+      "据":{"m":"据、拠る","p":"jù","e":"根据 / によると"},
+      "根":{"m":"根、根本","p":"gēn","e":"根本 / 根本"},
+      "由":{"m":"由、理由","p":"yóu","e":"由于 / 〜のために"},
+      "于":{"m":"于、〜に","p":"yú","e":"由于 / 〜のために"},
+      "此":{"m":"此、これ","p":"cǐ","e":"此时 / この時"},
+      "但":{"m":"但、しかし","p":"dàn","e":"但是 / しかし"},
+      "却":{"m":"却、しかし","p":"què","e":"却是 / しかし〜である"},
+      "而":{"m":"而、そして","p":"ér","e":"而且 / そして"},
+      "且":{"m":"且、かつ","p":"qiě","e":"而且 / そして"},
+      "或":{"m":"或、あるいは","p":"huò","e":"或者 / あるいは"},
+      "者":{"m":"者、人","p":"zhě","e":"作者 / 著者"},
+      "编":{"m":"編、編集","p":"biān","e":"编辑 / 編集"},
+      "辑":{"m":"集、編集","p":"jí","e":"编辑 / 編集"},
+      "译":{"m":"訳、翻訳","p":"yì","e":"翻译 / 翻訳"},
+      "翻":{"m":"翻、翻訳","p":"fān","e":"翻译 / 翻訳"},
+      "解":{"m":"解、解釈","p":"jiě","e":"解释 / 説明"},
+      "释":{"m":"釈、解釈","p":"shì","e":"解释 / 説明"},
+      "定":{"m":"定、決定","p":"dìng","e":"决定 / 決定"},
+      "决":{"m":"決、決定","p":"jué","e":"决定 / 決定"},
+      "选":{"m":"選、選ぶ","p":"xuǎn","e":"挑选 / 選ぶ"},
+      "择":{"m":"択、選択","p":"zé","e":"选择 / 選択"},
+      "认":{"m":"認、認める","p":"rèn","e":"确认 / 確認"},
+      "觉":{"m":"覚、感じる","p":"jué","e":"感觉 / 感じ"},
+      "感":{"m":"感、感じる","p":"gǎn","e":"感觉 / 感じ"},
+      "法":{"m":"法、法律","p":"fǎ","e":"法律 / 法律"},
+      "式":{"m":"式、方式","p":"shì","e":"方式 / 方式"},
+      "类":{"m":"類、種類","p":"lèi","e":"种类 / 種類"},
+      "型":{"m":"型、タイプ","p":"xíng","e":"类型 / 種類"},
+      "种":{"m":"種、種類","p":"zhǒng","e":"种类 / 種類"},
+      "别":{"m":"別、区別する","p":"bié","e":"区别 / 違い"},
+      "区":{"m":"区、区別","p":"qū","e":"区别 / 区別"},
+      "分":{"m":"分、部分","p":"fēn","e":"部分 / 部分"},
+      "部":{"m":"部、部分","p":"bù","e":"全部 / 全部"},
+      "段":{"m":"段、段階","p":"duàn","e":"阶段 / 段階"},
+      "总":{"m":"総、全体","p":"zǒng","e":"总是 / いつも"},
+      "常":{"m":"常、いつも","p":"cháng","e":"经常 / よく"},
+      "每":{"m":"每、毎","p":"měi","e":"每次 / 毎回"},
+      "各":{"m":"各、それぞれ","p":"gè","e":"各个 / それぞれ"},
+      "其":{"m":"其、その","p":"qí","e":"其他 / その他"},
+      "它":{"m":"それ、それ自身","p":"tā","e":"它们 / それら"},
+      "刻":{"m":"刻、瞬間","p":"kè","e":"时刻 / 瞬間"},
+      "间":{"m":"間、期間","p":"jiān","e":"期间 / 期間"},
+      "空":{"m":"空、空間","p":"kōng","e":"空间 / 空間"},
+      "地":{"m":"地、土地","p":"dì","e":"地方 / 場所"},
+      "处":{"m":"所、場所","p":"chù","e":"到处 / あちこち"},
+      "场":{"m":"場、場所","p":"chǎng","e":"场所 / 場所"},
+      "点":{"m":"点、ポイント","p":"diǎn","e":"重点 / 重点"},
+      "紧":{"m":"緊、緊急","p":"jǐn","e":"紧急 / 緊急"},
+      "急":{"m":"急、緊急","p":"jí","e":"紧急 / 緊急"},
+      "速":{"m":"速、速い","p":"sù","e":"快速 / 速い"},
+      "快":{"m":"快、速い","p":"kuài","e":"快速 / 速い"},
+      "慢":{"m":"慢、遅い","p":"màn","e":"慢速 / 遅い"},
+      "迟":{"m":"遅、遅い","p":"chí","e":"迟缓 / 遅い"},
+      "缓":{"m":"緩、遅い","p":"huǎn","e":"迟缓 / 遅い"},
+      "强":{"m":"強、強い","p":"qiáng","e":"强大 / 強い"},
+      "弱":{"m":"弱、弱い","p":"ruò","e":"弱小 / 弱い"},
+      "低":{"m":"低、低い","p":"dī","e":"低效 / 低い"},
+      "效":{"m":"効、効果","p":"xiào","e":"效果 / 効果"},
+      "率":{"m":"率、効率","p":"lǜ","e":"效率 / 効率"},
+      "结":{"m":"結、構造","p":"jié","e":"结构 / 構造"},
+      "成":{"m":"成、成功","p":"chéng","e":"成果 / 成果"},
+      "功":{"m":"功、功能","p":"gōng","e":"功能 / 機能"},
+      "败":{"m":"敗、失敗","p":"bài","e":"失败 / 失敗"},
+      "失":{"m":"失、失う","p":"shī","e":"丧失 / 喪失"},
+      "就":{"m":"就、達成","p":"jiù","e":"成就 / 成就"},
+      "达":{"m":"達、伝える","p":"dá","e":"表达 / 表現"},
+      "到":{"m":"到、到達","p":"dào","e":"达到 / 達する"},
+      "完":{"m":"完、完全","p":"wán","e":"完成 / 完成"},
+      "节":{"m":"節、祝日","p":"jié","e":"节日 / 祝日"},
+      "步":{"m":"歩、進歩","p":"bù","e":"进步 / 進歩"},
+      "骤":{"m":"骤、ステップ","p":"zhòu","e":"步骤 / ステップ"},
+      "程":{"m":"程、過程","p":"chéng","e":"过程 / 過程"},
+      "阶":{"m":"階、段階","p":"jiē","e":"阶段 / 段階"},
+      "期":{"m":"期、期間","p":"qī","e":"期间 / 期間"},
+      "限":{"m":"限、制限","p":"xiàn","e":"限制 / 制限"},
+      "制":{"m":"制、制御","p":"zhì","e":"控制 / 制御"},
+      "范":{"m":"範、規範","p":"fàn","e":"规范 / 規範"},
+      "围":{"m":"囲、周り","p":"wéi","e":"周围 / 周り"},
+      "绕":{"m":"繞、囲む","p":"rào","e":"围绕 / 囲む"},
+      "周":{"m":"周、周り","p":"zhōu","e":"周围 / 周り"},
+      "边":{"m":"辺、辺","p":"biān","e":"旁边 / 隣"},
+      "旁":{"m":"旁、隣","p":"páng","e":"旁边 / 隣"},
+      "邻":{"m":"隣、隣","p":"lín","e":"邻居 / 隣人"},
+      "居":{"m":"居、住む","p":"jū","e":"居住 / 居住"},
+      "住":{"m":"住、住む","p":"zhù","e":"居住 / 居住"},
+      "活":{"m":"活、生きる","p":"huó","e":"生活 / 生活"},
+      "命":{"m":"命、生命","p":"mìng","e":"生命 / 生命"},
+      "死":{"m":"死、死ぬ","p":"sǐ","e":"死亡 / 死亡"},
+      "亡":{"m":"亡、死ぬ","p":"wáng","e":"死亡 / 死亡"},
+      "丧":{"m":"喪、死ぬ","p":"sàng","e":"丧失 / 喪失"},
+      "获":{"m":"獲、得る","p":"huò","e":"收获 / 収穫"},
+      "得":{"m":"得、得る","p":"dé","e":"取得 / 取得"},
+      "取":{"m":"取、取る","p":"qǔ","e":"取得 / 取得"},
+      "收":{"m":"収、収穫","p":"shōu","e":"收获 / 収穫"},
+      "影":{"m":"影、影響","p":"yǐng","e":"影响 / 影響"},
+      "响":{"m":"響、影響","p":"xiǎng","e":"影响 / 影響"},
+      "用":{"m":"用、使う","p":"yòng","e":"采用 / 採用"},
+      "能":{"m":"能、できる","p":"néng","e":"功能 / 機能"},
+      "性":{"m":"性、性質","p":"xìng","e":"性能 / 性能"},
+      "质":{"m":"質、品質","p":"zhì","e":"劣质 / 劣悪"},
+      "量":{"m":"量、数量","p":"liàng","e":"数量 / 数量"},
+      "品":{"m":"品、品質","p":"pǐn","e":"品质 / 品質"},
+      "标":{"m":"標、標準","p":"biāo","e":"标准 / 標準"},
+      "准":{"m":"準、標準","p":"zhǔn","e":"标准 / 標準"},
+      "规":{"m":"規、規範","p":"guī","e":"规范 / 規範"},
+      "则":{"m":"則、規則","p":"zé","e":"规则 / 規則"},
+      "律":{"m":"律、法律","p":"lǜ","e":"法律 / 法律"},
+      "度":{"m":"度、制度","p":"dù","e":"制度 / 制度"},
+      "体":{"m":"体、体系","p":"tǐ","e":"体系 / 体系"},
+      "系":{"m":"系、体系","p":"xì","e":"体系 / 体系"},
+      "构":{"m":"構、構造","p":"gòu","e":"结构 / 構造"},
+      "组":{"m":"組、組織","p":"zǔ","e":"组织 / 組織"},
+      "织":{"m":"織、組織","p":"zhī","e":"组织 / 組織"},
+      "机":{"m":"機、機械","p":"jī","e":"机器 / 機械"},
+      "器":{"m":"器、道具","p":"qì","e":"机器 / 機械"},
+      "设":{"m":"設、設備","p":"shè","e":"设备 / 設備"},
+      "备":{"m":"備、設備","p":"bèi","e":"设备 / 設備"},
+      "装":{"m":"装、偽装","p":"zhuāng","e":"伪装 / 偽装"},
+      "置":{"m":"置、装置","p":"zhì","e":"装置 / 装置"},
+      "具":{"m":"具、道具","p":"jù","e":"工具 / 工具"},
+      "材":{"m":"材、材料","p":"cái","e":"材料 / 材料"},
+      "料":{"m":"料、材料","p":"liào","e":"材料 / 材料"},
+      "资":{"m":"資、資源","p":"zī","e":"资源 / 資源"},
+      "源":{"m":"源、資源","p":"yuán","e":"资源 / 資源"},
+      "力":{"m":"力、力","p":"lì","e":"能力 / 能力"},
+      "技":{"m":"技、技術","p":"jì","e":"技术 / 技術"},
+      "术":{"m":"術、技術","p":"shù","e":"技术 / 技術"},
+      "科":{"m":"科、科学","p":"kē","e":"科学 / 科学"},
+      "研":{"m":"研、研究","p":"yán","e":"研究 / 研究"},
+      "究":{"m":"究、研究","p":"jiū","e":"研究 / 研究"},
+      "发":{"m":"発、発展","p":"fā","e":"发展 / 発展"},
+      "展":{"m":"展、発展","p":"zhǎn","e":"发展 / 発展"},
+      "进":{"m":"進、進歩","p":"jìn","e":"进步 / 進歩"},
+      "改":{"m":"改、改善","p":"gǎi","e":"改善 / 改善"},
+      "善":{"m":"善、改善","p":"shàn","e":"改善 / 改善"},
+      "优":{"m":"優、優秀","p":"yōu","e":"优秀 / 優秀"},
+      "秀":{"m":"秀、優秀","p":"xiù","e":"优秀 / 優秀"},
+      "良":{"m":"良、良い","p":"liáng","e":"良好 / 良好"},
+      "劣":{"m":"劣、劣る","p":"liè","e":"劣质 / 劣悪"},
+      "差":{"m":"差、違い","p":"chà","e":"很差 / とても悪い"},
+      "错":{"m":"錯、間違い","p":"cuò","e":"错误 / 間違い"},
+      "误":{"m":"誤、間違い","p":"wù","e":"错误 / 間違い"},
+      "正":{"m":"正、正しい","p":"zhèng","e":"正确 / 正しい"},
+      "确":{"m":"確、確か","p":"què","e":"确认 / 確認"},
+      "真":{"m":"真、本当","p":"zhēn","e":"真实 / 本当"},
+      "实":{"m":"実、実行","p":"shí","e":"实施 / 実施"},
+      "虚":{"m":"虚、偽","p":"xū","e":"虚假 / 偽"},
+      "假":{"m":"偽、偽","p":"jiǎ","e":"虚假 / 偽"},
+      "伪":{"m":"偽、偽","p":"wěi","e":"伪装 / 偽装"},
+      "掩":{"m":"掩、隠す","p":"yǎn","e":"掩饰 / 隠す"},
+      "饰":{"m":"飾、隠す","p":"shì","e":"掩饰 / 隠す"},
+      "隐":{"m":"隠、隠す","p":"yǐn","e":"隐藏 / 隠す"},
+      "藏":{"m":"藏、隠す","p":"cáng","e":"隐藏 / 隠す"},
+      "显":{"m":"顕、現れる","p":"xiǎn","e":"显示 / 表示"},
+      "示":{"m":"示、示す","p":"shì","e":"显示 / 表示"},
+      "表":{"m":"表、表す","p":"biǎo","e":"表示 / 表示"},
+      "现":{"m":"現、現れる","p":"xiàn","e":"呈现 / 呈する"},
+      "呈":{"m":"呈、呈する","p":"chéng","e":"呈现 / 呈する"},
+      "提":{"m":"提、提供","p":"tí","e":"提供 / 提供"},
+      "供":{"m":"供、提供","p":"gōng","e":"提供 / 提供"},
+      "予":{"m":"予、与える","p":"yǔ","e":"给予 / 与える"},
+      "受":{"m":"受、受ける","p":"shòu","e":"接受 / 受ける"},
+      "接":{"m":"接、受ける","p":"jiē","e":"接受 / 受ける"},
+      "拒":{"m":"拒、拒否","p":"jù","e":"拒绝 / 拒否"},
+      "绝":{"m":"絶、拒否","p":"jué","e":"拒绝 / 拒否"},
+      "允":{"m":"允、許可","p":"yǔn","e":"允许 / 許可"},
+      "许":{"m":"許、許可","p":"xǔ","e":"允许 / 許可"},
+      "批":{"m":"批、批判","p":"pī","e":"批评 / 批判"},
+      "评":{"m":"評、評価","p":"píng","e":"评估 / 評価"},
+      "价":{"m":"価、価値","p":"jià","e":"价值 / 価値"},
+      "值":{"m":"値、価値","p":"zhí","e":"价值 / 価値"},
+      "估":{"m":"估、評価","p":"gū","e":"评估 / 評価"},
+      "测":{"m":"測、測定","p":"cè","e":"测量 / 測定"},
+      "试":{"m":"試、試す","p":"shì","e":"测试 / テスト"},
+      "验":{"m":"験、検証","p":"yàn","e":"验证 / 検証"},
+      "证":{"m":"証、証明","p":"zhèng","e":"证明 / 証明"},
+      "查":{"m":"查、調べる","p":"chá","e":"审查 / 審査"},
+      "询":{"m":"询、問い合わせ","p":"xún","e":"查询 / 検索"},
+      "检":{"m":"検、検査","p":"jiǎn","e":"检查 / 検査"},
+      "审":{"m":"審、審査","p":"shěn","e":"审查 / 審査"},
+      "监":{"m":"監、監視","p":"jiān","e":"监控 / 監視"},
+      "控":{"m":"控、制御","p":"kòng","e":"控制 / 制御"},
+      "管":{"m":"管、管理","p":"guǎn","e":"管理 / 管理"},
+      "理":{"m":"理、管理","p":"lǐ","e":"管理 / 管理"},
+      "操":{"m":"操、操作","p":"cāo","e":"操作 / 操作"},
+      "执":{"m":"執、実行","p":"zhí","e":"执行 / 実行"},
+      "行":{"m":"行、実行","p":"xíng","e":"执行 / 実行"},
+      "施":{"m":"施、実施","p":"shī","e":"实施 / 実施"},
+      "采":{"m":"採、採用","p":"cǎi","e":"采用 / 採用"},
+      "挑":{"m":"挑、選ぶ","p":"tiāo","e":"挑选 / 選ぶ"},
+    };
+
+    // ---- DOM要素 ----
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasStage = document.getElementById('canvasStage');
+    const kbCursor = document.getElementById('kbCursor');
+    const kbDrawStatus = document.getElementById('kbDrawStatus');
+    const fileInput = document.getElementById('fileInput');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const penBtn = document.getElementById('penBtn');
+    const eraserBtn = document.getElementById('eraserBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const apiUrlInput = document.getElementById('apiUrl');
+    const apiUrlErrorEl = document.getElementById('apiUrlError');
+    const messageBox = document.getElementById('messageBox');
+    const messageLive = document.getElementById('messageLive');
+    let lastMessageText = '';
+    const analysisStatusEl = document.getElementById('analysisStatus');
+    const resultLiveEl = document.getElementById('resultLive');
+    const manualKanjiInput = document.getElementById('manualKanjiInput');
+    const lookupBtn = document.getElementById('lookupBtn');
+    const offlineModeBtn = document.getElementById('offlineModeBtn');
+    const apiModeBtn = document.getElementById('apiModeBtn');
+    const apiSettings = document.getElementById('apiSettings');
+    const offlineInfo = document.getElementById('offlineInfo');
+    const fileWarning = document.getElementById('fileWarning');
+    const modeBadge = document.getElementById('modeBadge');
+    const ocrBadge = document.getElementById('ocrBadge');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+
+    const detectedKanjiEl = document.getElementById('detectedKanji');
+    const meaningEl = document.getElementById('meaning');
+    const pinyinEl = document.getElementById('pinyin');
+    const exampleEl = document.getElementById('example');
+    const playPinyinBtn = document.getElementById('playPinyinBtn');
+    const playExampleBtn = document.getElementById('playExampleBtn');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const penSizeSlider = document.getElementById('penSizeSlider');
+    const penSizeLabel = document.getElementById('penSizeLabel');
+    const rateSlider = document.getElementById('rateSlider');
+    const rateLabel = document.getElementById('rateLabel');
+    const pitchSlider = document.getElementById('pitchSlider');
+    const pitchLabel = document.getElementById('pitchLabel');
+    const ttsStatus = document.getElementById('ttsStatus');
+    const logoImg = document.querySelector('header img.logo');
+    if (logoImg) logoImg.addEventListener('error', () => { logoImg.style.display = 'none'; });
+
+    // ---- 状態 ----
+    let drawing = false;
+    const KEY_STEP = 18;
+    let keyDrawing = false;
+    let keyCursor = { x: canvas.width / 2, y: canvas.height / 2 };
+    let tool = 'pen';
+    let last = { x: 0, y: 0 };
+    let penSize = 12;
+    let penColor = '#000';
+    const undoStack = [];
+    const MAX_UNDO = 30;
+    let currentKanjiText = '';
+    let currentExampleText = '';
+    let selectedVoice = null;
+    let useApiMode = false;
+    let ttsRate = 0.9;
+    let ttsPitch = 1.0;
+    let tesseractWorker = null;
+    let tesseractReady = false;
+    let tesseractInitPromise = null;
+    let tesseractOptions = null;
+    let progressHideTimer = null;
+    let lastProgressAnnouncement = -1;
+    let piperSession = null;
+    let piperLoading = null;
+    const piperFetchControllers = new Set();
+    let activeAudio = null;
+    let activeAudioUrl = null;
+    let activeUtterance = null;
+    let activeButton = null;
+    let playbackToken = 0;
+    // Set only while a Piper failure is being covered by a browser voice.
+    // Stop or a new playback must restore the user's voice too, not just the
+    // normal end of the fallback utterance.
+    let fallbackVoiceRestore = null;
+    let analysisGeneration = 0;
+    let analysisActive = false;
+    let analysisController = null;
+    let ocrQueue = Promise.resolve();
+    let ocrJobCounter = 0;
+    function cancelAnalysis() {
+      analysisGeneration++;
+      if (analysisController) {
+        analysisController.abort();
+        analysisController = null;
+      }
+      if (!analysisActive) return;
+      analysisActive = false;
+      analyzeBtn.removeAttribute('aria-disabled');
+      analyzeBtn.textContent = '漢字分析';
+      resultPanel.removeAttribute('aria-busy');
+      analysisStatusEl.textContent = '解析をキャンセルしました';
+      showProgress(false);
+    }
+
+    if (location.protocol === 'file:') {
+      fileWarning.style.display = 'block';
+    }
+
+    // ---- モード切り替え ----
+    // Examples are "Chinese / Japanese". Keep the exact text but tag each
+    // half so assistive technology uses the right voice for both languages.
+    function setExampleText(text) {
+      const value = text || '--';
+      const parts = value.match(/^([\s\S]*?)(\s*\/\s*)([\s\S]*)$/);
+      if (!parts) {
+        exampleEl.textContent = value;
+        return;
+      }
+      exampleEl.textContent = '';
+      const chinese = document.createElement('span');
+      chinese.lang = 'zh-CN';
+      chinese.textContent = parts[1];
+      const japanese = document.createElement('span');
+      japanese.lang = 'ja';
+      japanese.textContent = parts[3];
+      exampleEl.append(chinese, document.createTextNode(parts[2]), japanese);
+    }
+    function clearResult() {
+      stopSpeaking();
+      detectedKanjiEl.textContent = '--';
+      meaningEl.textContent = '--';
+      pinyinEl.textContent = '--';
+      setExampleText('--');
+      resultLiveEl._token = (resultLiveEl._token || 0) + 1;
+      resultLiveEl.textContent = '';
+      currentKanjiText = '';
+      currentExampleText = '';
+      playPinyinBtn.disabled = true;
+      playExampleBtn.disabled = true;
+    }
+    function setMode(apiMode) {
+      const wasAnalyzing = analysisActive;
+      cancelAnalysis();
+      useApiMode = apiMode;
+      offlineModeBtn.classList.toggle('active', !apiMode);
+      apiModeBtn.classList.toggle('active', apiMode);
+      offlineModeBtn.setAttribute('aria-pressed', String(!apiMode));
+      apiModeBtn.setAttribute('aria-pressed', String(apiMode));
+      apiSettings.style.display = apiMode ? 'block' : 'none';
+      offlineInfo.style.display = apiMode ? 'none' : 'block';
+      modeBadge.textContent = apiMode ? 'API連携' : 'API不要';
+      modeBadge.style.background = apiMode ? 'var(--purple)' : 'var(--green)';
+      ocrBadge.textContent = apiMode ? 'Qwen-VL' : 'Tesseract.js';
+      ocrBadge.style.background = apiMode ? 'var(--purple)' : 'var(--gold)';
+      clearResult();
+      analysisStatusEl.textContent = (wasAnalyzing ? '解析をキャンセルし、' : '') +
+        (apiMode ? 'API連携モードに切り替えました。' : 'API不要モードに切り替えました。');
+    }
+    offlineModeBtn.addEventListener('click', () => setMode(false));
+    apiModeBtn.addEventListener('click', () => setMode(true));
+
+    // ---- キャンバス初期化 ----
+    function initCanvas(saveState = true) {
+      cancelAnalysis();
+      keyDrawing = false;
+      if (saveState) saveUndoState();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      undoBtn.disabled = undoStack.length === 0;
+    }
+    initCanvas(false);
+    undoBtn.disabled = true;
+
+    function saveUndoState() {
+      try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        undoStack.push(imageData);
+        if (undoStack.length > MAX_UNDO) undoStack.shift();
+        undoBtn.disabled = false;
+      } catch (e) {
+        console.warn('Undo state save failed:', e);
+      }
+    }
+
+    function undo() {
+      cancelAnalysis();
+      // A pointer stroke must not resume from the old coordinate after its
+      // saved state has been popped.
+      drawing = false;
+      if (keyDrawing) setKeyPen(false);
+      if (undoStack.length === 0) {
+        showMessage('元に戻す操作がありません。');
+        undoBtn.disabled = true;
+        return;
+      }
+      const imageData = undoStack.pop();
+      ctx.putImageData(imageData, 0, 0);
+      undoBtn.disabled = undoStack.length === 0;
+    }
+
+    // ---- 描画ツール ----
+    function setTool(t) {
+      tool = t;
+      penBtn.classList.toggle('selected', t === 'pen');
+      eraserBtn.classList.toggle('selected', t === 'eraser');
+      penBtn.classList.toggle('dim', t !== 'pen');
+      eraserBtn.classList.toggle('dim', t === 'pen');
+      penBtn.setAttribute('aria-pressed', String(t === 'pen'));
+      eraserBtn.setAttribute('aria-pressed', String(t === 'eraser'));
+      canvas.style.cursor = t === 'eraser' ? 'cell' : 'crosshair';
+    }
+
+    function toCanvasCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const x = (clientX - rect.left) * (canvas.width / rect.width);
+      const y = (clientY - rect.top) * (canvas.height / rect.height);
+      return { x, y };
+    }
+
+    function startDrawing(e) {
+      e.preventDefault();
+      cancelAnalysis();
+      // Pointer and keyboard strokes must not overlap, otherwise Escape would
+      // undo the pointer state while claiming the keyboard stroke was canceled.
+      if (keyDrawing) setKeyPen(false);
+      drawing = true;
+      last = toCanvasCoords(e);
+      keyCursor = { x: last.x, y: last.y };
+      updateKeyCursor();
+      saveUndoState();
+    }
+    function stopDrawing() { drawing = false; }
+    function draw(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      const p = toCanvasCoords(e);
+      drawLine(last.x, last.y, p.x, p.y);
+      last = p;
+    }
+
+    function drawLine(x1, y1, x2, y2) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.lineWidth = penSize * (tool === 'eraser' ? 3 : 1);
+      ctx.globalCompositeOperation = tool === 'pen' ? 'source-over' : 'destination-out';
+      ctx.strokeStyle = tool === 'pen' ? penColor : 'rgba(0,0,0,1)';
+      ctx.stroke();
+    }
+
+    canvas.addEventListener('pointerdown', startDrawing);
+    canvas.addEventListener('pointermove', draw);
+    canvas.addEventListener('pointerup', stopDrawing);
+    canvas.addEventListener('pointerleave', stopDrawing);
+    canvas.addEventListener('pointercancel', stopDrawing);
+
+    // ---- キーボード描画（ポインタ操作と同じ描画primitiveを再利用） ----
+    function updateKeyCursor() {
+      if (!kbCursor || !kbCursor.classList.contains('visible')) return;
+      const canvasRect = canvas.getBoundingClientRect();
+      const stageRect = canvasStage.getBoundingClientRect();
+      if (!canvasRect.width || !canvasRect.height) return;
+      kbCursor.style.left = (canvasRect.left - stageRect.left + keyCursor.x * canvasRect.width / canvas.width) + 'px';
+      kbCursor.style.top = (canvasRect.top - stageRect.top + keyCursor.y * canvasRect.height / canvas.height) + 'px';
+    }
+
+    function setKeyPen(down) {
+      if (down === keyDrawing) return;
+      // Pointer and keyboard strokes must stay mutually exclusive in both
+      // directions, otherwise undo can pop an overlapping snapshot.
+      if (down && drawing) stopDrawing();
+      keyDrawing = down;
+      if (down) {
+        saveUndoState();
+        drawLine(keyCursor.x, keyCursor.y, keyCursor.x, keyCursor.y);
+        kbDrawStatus.textContent = `描画を開始しました。位置 ${Math.round(keyCursor.x)}, ${Math.round(keyCursor.y)}`;
+      } else {
+        kbDrawStatus.textContent = '描画を終了しました';
+      }
+    }
+
+    function cancelKeyStroke() {
+      if (!keyDrawing) return;
+      keyDrawing = false;
+      undo();
+      kbDrawStatus.textContent = '現在の線を取り消しました';
+    }
+
+    canvas.addEventListener('focus', () => {
+      kbCursor.classList.add('visible');
+      updateKeyCursor();
+    });
+    canvas.addEventListener('blur', () => {
+      kbCursor.classList.remove('visible');
+      if (keyDrawing) setKeyPen(false);
+    });
+    window.addEventListener('resize', updateKeyCursor);
+
+    canvas.addEventListener('keydown', (e) => {
+      let dx = 0;
+      let dy = 0;
+      let handled = true;
+      switch (e.key) {
+        case 'ArrowLeft': dx = -KEY_STEP; break;
+        case 'ArrowRight': dx = KEY_STEP; break;
+        case 'ArrowUp': dy = -KEY_STEP; break;
+        case 'ArrowDown': dy = KEY_STEP; break;
+        case 'Home':
+          if (keyDrawing) setKeyPen(false);
+          keyCursor = { x: canvas.width / 2, y: canvas.height / 2 };
+          kbDrawStatus.textContent = 'キャンバスの中央に移動しました';
+          break;
+        case ' ':
+        case 'Spacebar':
+        case 'Enter':
+          setKeyPen(!keyDrawing);
+          break;
+        default: handled = false;
+      }
+      if (!handled) return;
+      cancelAnalysis();
+      e.preventDefault();
+      if (dx || dy) {
+        const factor = e.shiftKey ? 4 : 1;
+        const next = {
+          x: Math.max(0, Math.min(canvas.width, keyCursor.x + dx * factor)),
+          y: Math.max(0, Math.min(canvas.height, keyCursor.y + dy * factor))
+        };
+        if (keyDrawing) drawLine(keyCursor.x, keyCursor.y, next.x, next.y);
+        keyCursor = next;
+        kbDrawStatus.textContent = `位置 ${Math.round(next.x)}, ${Math.round(next.y)}` +
+          (keyDrawing ? '、描画中' : '');
+      }
+      updateKeyCursor();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (keyDrawing) setKeyPen(false);
+      initCanvas();
+    });
+    penBtn.addEventListener('click', () => setTool('pen'));
+    eraserBtn.addEventListener('click', () => setTool('eraser'));
+    undoBtn.addEventListener('click', undo);
+
+    function selectColor(dot) {
+      document.querySelectorAll('.color-dot').forEach(d => {
+        d.classList.remove('selected');
+        d.setAttribute('aria-pressed', 'false');
+      });
+      dot.classList.add('selected');
+      dot.setAttribute('aria-pressed', 'true');
+      penColor = dot.dataset.color;
+      if (tool !== 'pen') setTool('pen');
+    }
+    document.querySelectorAll('.color-dot').forEach(dot => {
+      dot.addEventListener('click', () => selectColor(dot));
+      dot.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          selectColor(dot);
+        }
+      });
+    });
+
+    penSizeSlider.addEventListener('input', (e) => {
+      penSize = parseInt(e.target.value, 10);
+      penSizeLabel.textContent = penSize;
+    });
+
+    rateSlider.addEventListener('input', (e) => {
+      ttsRate = parseFloat(e.target.value);
+      rateLabel.textContent = ttsRate.toFixed(1);
+    });
+
+    pitchSlider.addEventListener('input', (e) => {
+      ttsPitch = parseFloat(e.target.value);
+      pitchLabel.textContent = ttsPitch.toFixed(1);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      const el = e.target;
+      const editing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !editing) {
+        e.preventDefault();
+        undo();
+      }
+      if (e.key === 'Escape') {
+        if (keyDrawing) cancelKeyStroke();
+        else if (drawing) undo();
+        else stopDrawing();
+      }
+    });
+
+    // ---- ファイルアップロード ----
+    fileInput.addEventListener('change', (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      cancelAnalysis();
+      clearResult();
+      if (!file.type.startsWith('image/')) {
+        showMessage('画像ファイルを選択してください。', 3000, true);
+        return;
+      }
+      const img = new Image();
+      const reader = new FileReader();
+      img.onload = () => {
+        initCanvas();
+        const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        const x = (canvas.width - w) / 2;
+        const y = (canvas.height - h) / 2;
+        ctx.drawImage(img, x, y, w, h);
+        showMessage('画像を読み込みました。「漢字分析」を押してください。');
+      };
+      img.onerror = () => showMessage('画像の読み込みに失敗しました。', 3000, true);
+      reader.onload = (e) => { img.src = e.target.result; };
+      reader.onerror = () => showMessage('ファイルの読み込みに失敗しました。', 3000, true);
+      reader.readAsDataURL(file);
+      ev.target.value = '';
+    });
+
+    // ---- メッセージ表示 ----
+    function showMessage(text, duration = 3000, urgent = false) {
+      clearTimeout(messageBox._timer);
+      messageBox._timer = null;
+      lastMessageText = text;
+      const token = (messageBox._token || 0) + 1;
+      messageBox._token = token;
+      // Errors interrupt; progress and success wait for a pause. The visible
+      // box stays aria-hidden so only the dedicated live node is announced.
+      // Clear before changing politeness so the previous text is never
+      // re-announced under the new aria-live value.
+      // Resetting the node in a frame re-announces repeats without blanking
+      // the visible message or doubling alert semantics.
+      messageBox.textContent = text;
+      messageBox.classList.add('visible');
+      messageLive.textContent = '';
+      messageLive.setAttribute('aria-live', urgent ? 'assertive' : 'polite');
+      requestAnimationFrame(() => {
+        if (messageBox._token === token) messageLive.textContent = text;
+      });
+      if (duration > 0) {
+        messageBox._timer = setTimeout(() => {
+          messageBox.classList.remove('visible');
+          if (messageBox._token === token) {
+            messageBox.textContent = '';
+            messageLive.textContent = '';
+          }
+        }, duration);
+      }
+    }
+
+    // ---- プログレスバー ----
+    function showProgress(show) {
+      clearTimeout(progressHideTimer);
+      progressHideTimer = null;
+      progressBar.style.display = show ? 'block' : 'none';
+      if (!show) {
+        progressFill.style.width = '0%';
+        lastProgressAnnouncement = -1;
+      }
+    }
+    function scheduleProgressHide(delay = 1000) {
+      clearTimeout(progressHideTimer);
+      progressHideTimer = setTimeout(() => {
+        progressHideTimer = null;
+        showProgress(false);
+      }, delay);
+    }
+    function setProgress(pct, announce = true) {
+      progressFill.style.width = pct + '%';
+      progressBar.setAttribute('aria-valuenow', String(pct));
+      // The toast disappears after 15 s; keep a polite, throttled percentage
+      // in the persistent analysis status instead. Worker initialization is a
+      // transient 100% milestone: do not announce it before OCR starts.
+      if (announce && progressBar.style.display !== 'none' &&
+          (pct === 0 || pct === 100 || pct - lastProgressAnnouncement >= 10)) {
+        lastProgressAnnouncement = pct;
+        analysisStatusEl.textContent = `解析中です（${pct}%）`;
+      }
+    }
+
+    // ---- ローカル同梱アセットを優先し、無ければ CDN を使う ----
+    async function resolveAsset(localPath, remoteUrl, { requireSri = true } = {}) {
+      try {
+        const res = await fetch(localPath, { method: 'HEAD', cache: 'no-store' });
+        if (res.ok) {
+          // The vendored files are byte-identical to the CDN copies, so the
+          // same hash can verify them at runtime without a second download.
+          // This closes the gap where only CDN fallbacks were SRI-checked.
+          return { url: localPath, local: true, integrity: CDN_SRI[remoteUrl] || '' };
+        }
+      } catch (e) { /* local assets are optional */ }
+      const integrity = CDN_SRI[remoteUrl] || '';
+      // SRI 未定義の CDN を無検証で実行しない。音声モデルは
+      // PIPER_ASSET_SRI で別途検証するためのみオプトアウトを許可する。
+      if (requireSri && !integrity) {
+        throw new Error(`CDN フォールバックの SRI が定義されていません: ${remoteUrl}`);
+      }
+      return { url: remoteUrl, local: false, integrity };
+    }
+
+    async function requireLocalAssets(paths) {
+      const results = await Promise.all(paths.map(async (path) => {
+        try {
+          return (await fetch(path, { method: 'HEAD', cache: 'no-store' })).ok;
+        } catch (e) {
+          return false;
+        }
+      }));
+      return results.every(Boolean);
+    }
+
+    // ---- 動的スクリプト読み込み ----
+    // A failed <script> element must not poison later retries, and concurrent
+    // callers should join one real in-flight load instead of any DOM node.
+    const pendingScripts = new Map();
+    function loadScript(src, integrity = '') {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing && existing.dataset.loaded === 'true') {
+        return Promise.resolve();
+      }
+      if (pendingScripts.has(src)) {
+        return pendingScripts.get(src);
+      }
+      const promise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        if (integrity) {
+          script.integrity = integrity;
+          script.crossOrigin = 'anonymous';
+        }
+        script.onload = () => {
+          script.dataset.loaded = 'true';
+          pendingScripts.delete(src);
+          resolve();
+        };
+        script.onerror = () => {
+          script.remove();
+          pendingScripts.delete(src);
+          reject(new Error('Failed to load: ' + src));
+        };
+        document.head.appendChild(script);
+      });
+      pendingScripts.set(src, promise);
+      return promise;
+    }
+
+    // ---- 空キャンバスチェック ----
+    function isCanvasEmpty() {
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i+3] > 0 && (pixels[i] !== 255 || pixels[i+1] !== 255 || pixels[i+2] !== 255)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // ---- 画像前処理（OCR精度向上） ----
+    function preprocessCanvas() {
+      const w = canvas.width;
+      const h = canvas.height;
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      // Grayscale + Otsu threshold
+      const gray = new Uint8Array(w * h);
+      let min = 255, max = 0;
+      for (let i = 0; i < w * h; i++) {
+        const a = data[i*4+3] / 255;
+        const r = data[i*4] * a + 255 * (1 - a);
+        const g = data[i*4+1] * a + 255 * (1 - a);
+        const b = data[i*4+2] * a + 255 * (1 - a);
+        const v = Math.round(0.299*r + 0.587*g + 0.114*b);
+        gray[i] = v;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      // Contrast stretch
+      const range = max - min || 1;
+      for (let i = 0; i < w * h; i++) {
+        gray[i] = Math.round((gray[i] - min) / range * 255);
+      }
+      // Otsu threshold
+      const hist = new Array(256).fill(0);
+      for (let i = 0; i < w * h; i++) hist[gray[i]]++;
+      let total = w * h;
+      let sum = 0;
+      for (let i = 0; i < 256; i++) sum += i * hist[i];
+      let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+      for (let t = 0; t < 256; t++) {
+        wB += hist[t];
+        if (wB === 0) continue;
+        const wF = total - wB;
+        if (wF === 0) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB;
+        const mF = (sum - sumB) / wF;
+        const between = wB * wF * (mB - mF) * (mB - mF);
+        if (between > maxVar) {
+          maxVar = between;
+          threshold = t;
+        }
+      }
+      // Apply threshold: dark text on white background
+      const out = ctx.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        const v = gray[i] > threshold ? 255 : 0;
+        out.data[i*4] = v;
+        out.data[i*4+1] = v;
+        out.data[i*4+2] = v;
+        out.data[i*4+3] = 255;
+      }
+      // Create temp canvas with processed image
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = w;
+      tmpCanvas.height = h;
+      tmpCanvas.getContext('2d').putImageData(out, 0, 0);
+      return tmpCanvas.toDataURL('image/png');
+    }
+
+    // ---- 辞書検索（オフライン） ----
+    function lookupDictionary(kanji) {
+      const entry = KANJI_DICT[kanji];
+      if (!entry) {
+        return {
+          kanji: kanji,
+          meaning: '（辞書に未登録）',
+          pinyin: '—',
+          example: '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）'
+        };
+      }
+      return {
+        kanji: kanji,
+        meaning: entry.m,
+        pinyin: entry.p,
+        example: entry.e
+      };
+    }
+
+    // ---- API呼び出し ----
+    function setApiUrlError(invalid) {
+      apiUrlErrorEl.hidden = !invalid;
+      apiUrlInput.setAttribute('aria-invalid', String(invalid));
+      if (invalid) apiUrlInput.focus();
+    }
+    function getApiUrl() {
+      const raw = apiUrlInput.value.trim().replace(/\/$/, '');
+      try {
+        if (!raw) throw new Error('empty');
+        const url = new URL(raw);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('scheme');
+        if (url.username || url.password) throw new Error('credentials');
+        const host = url.hostname.toLowerCase();
+        const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+        if (!loopback) throw new Error('host');
+        setApiUrlError(false);
+        return url.toString().replace(/\/$/, '');
+      } catch (e) {
+        setApiUrlError(true);
+        return '';
+      }
+    }
+    function createAnalysisFetchController() {
+      // The 15 s deadline and an explicit cancel are independent abort sources.
+      const controller = new AbortController();
+      const outer = analysisController;
+      let canceledByAnalysis = false;
+      const relayAbort = () => {
+        canceledByAnalysis = true;
+        controller.abort();
+      };
+      if (outer) {
+        if (outer.signal.aborted) relayAbort();
+        else outer.signal.addEventListener('abort', relayAbort, { once: true });
+      }
+      return {
+        controller,
+        isCanceled: () => canceledByAnalysis,
+        cleanup: () => {
+          if (outer) outer.signal.removeEventListener('abort', relayAbort);
+        }
+      };
+    }
+
+    async function extractKanjiFromImage(imageDataUrl) {
+      const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。', 5000, true);
+        return null;
+      }
+      const prompt = "画像に写っている中国語の漢字を1文字だけ抽出して、その文字だけを返してください。他のテキストは一切含めないでください。";
+      const messages = [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: imageDataUrl } },
+          { type: 'text', text: prompt }
+        ]
+      }];
+      const body = {
+        model: QWEN_VL_MODEL,
+        messages: messages,
+        temperature: 0.1,
+        max_tokens: 10
+      };
+      const fetchHandle = createAnalysisFetchController();
+      try {
+        const timeoutId = setTimeout(() => fetchHandle.controller.abort(), API_TIMEOUT_MS);
+        try {
+          const res = await fetch(`${apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: fetchHandle.controller.signal
+          });
+          if (!res.ok) {
+            await res.text();
+            throw new Error(`API Error ${res.status}`);
+          }
+          const json = await res.json();
+          const text = (json.choices?.[0]?.message?.content ?? '').trim();
+          const match = text.match(/[\u4e00-\u9fff]/);
+          return match ? match[0] : (text ? text.charAt(0) : '');
+        } finally {
+          // Keep the deadline active while the response body is consumed too.
+          clearTimeout(timeoutId);
+          fetchHandle.cleanup();
+        }
+      } catch (err) {
+        if (!fetchHandle.isCanceled()) {
+          console.error('API Error:', err);
+          showMessage('漢字の読み取りに失敗しました。ローカルAIサーバーの起動とCORS許可を確認してください。', 5000, true);
+        }
+        return null;
+      }
+    }
+
+    async function generateDetailsForKanji(kanji) {
+      const apiUrl = getApiUrl();
+      if (!apiUrl) {
+        showMessage('API URLはローカル（127.0.0.1 / localhost / ::1）の http(s) で指定してください。', 5000, true);
+        return null;
+      }
+      const prompt = `あなたは中国語漢字の専門家です。以下の漢字について、JSON形式で情報を返してください。出力は厳密にこのフォーマットに従ってください。
+要求フォーマット（厳密）:
+{
+  "kanji": "${kanji}",
+  "meaning": "簡潔な日本語の意味",
+  "pinyin": "中国語ピンイン（声調記号付き）",
+  "example": "その漢字を使った簡体中国語の例文 / その日本語訳"
+}
+注意:
+- 例文は短く、漢字の使用が明確なものにしてください。
+- 中国語例文とその日本語訳の文法がそれぞれ必ず正しくなるようにしてください。
+- JSON以外の余計なテキストは絶対に出力しないでください。`;
+      const fetchHandle = createAnalysisFetchController();
+      try {
+        const timeoutId = setTimeout(() => fetchHandle.controller.abort(), API_TIMEOUT_MS);
+        try {
+          const res = await fetch(`${apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: GPT_OSS_MODEL, messages: [{ role: 'user', content: prompt }] }),
+            signal: fetchHandle.controller.signal
+          });
+          if (!res.ok) { await res.text(); throw new Error(`API error: ${res.status}`); }
+          const data = await res.json();
+          const content = (data.choices?.[0]?.message?.content ?? '').trim();
+          let jsonStr = content;
+          const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (jsonMatch) jsonStr = jsonMatch[1].trim();
+          const result = JSON.parse(jsonStr);
+          if (!result || typeof result !== 'object') throw new Error('Invalid response format');
+          return {
+            kanji: result.kanji || kanji,
+            meaning: result.meaning || '--',
+            pinyin: result.pinyin || '--',
+            example: result.example || '--'
+          };
+        } finally {
+          // Keep the deadline active while the response body is consumed too.
+          clearTimeout(timeoutId);
+          fetchHandle.cleanup();
+        }
+      } catch (err) {
+        if (!fetchHandle.isCanceled()) {
+          console.error('API Error:', err);
+          showMessage('意味・例文の生成に失敗しました。モデルの応答とCORS許可を確認してください。', 5000, true);
+        }
+        return null;
+      }
+    }
+
+    // ---- Tesseract.js OCR (高性能オフラインOCR) ----
+    async function initTesseract({ manageProgress = true } = {}) {
+      if (tesseractReady) return true;
+      // Cancelling an analysis cannot abort createWorker(). Join the in-flight
+      // initialization instead of starting a second worker from a second run.
+      if (tesseractInitPromise) return tesseractInitPromise;
+      const promise = (async () => {
+        try {
+          if (manageProgress) showProgress(true);
+          setProgress(10);
+          const tesseractAsset = await resolveAsset('vendor/tesseract/tesseract.min.js', TESSERACT_CDN);
+          if (!(await requireLocalAssets(TESSERACT_LOCAL_ASSETS))) {
+            throw new Error('OCRの二次アセットがローカルにありません。tools/fetch-assets.py を実行してください。');
+          }
+          if (!window.Tesseract) await loadScript(tesseractAsset.url, tesseractAsset.integrity);
+          // The CDN main script has SRI, but Tesseract fetches these files itself.
+          // Always point them at the verified local vendor copies.
+          const localOptions = {
+            workerPath: new URL('vendor/tesseract/worker.min.js', location.href).href,
+            corePath: new URL('vendor/tesseract/core/', location.href).href,
+            langPath: new URL('vendor/tesseract/lang/', location.href).href
+          };
+          tesseractOptions = Object.assign({
+            logger: m => {
+              if (m.status === 'recognizing text' && progressBar.style.display !== 'none') {
+                setProgress(30 + Math.round(m.progress * 60));
+              }
+            }
+          }, localOptions);
+          setProgress(30);
+          tesseractWorker = await Tesseract.createWorker('chi_sim', 1, tesseractOptions);
+          setProgress(100, false);
+          tesseractReady = true;
+          if (manageProgress) showProgress(false);
+          return true;
+        } catch (err) {
+          console.error('Tesseract init error:', err && err.message ? err.message : err);
+          if (manageProgress) showProgress(false);
+          showMessage('OCRエンジンの読み込みに失敗しました。手動入力をお使いください。', 0, true);
+          return false;
+        }
+      })();
+      tesseractInitPromise = promise;
+      try {
+        return await promise;
+      } finally {
+        if (tesseractInitPromise === promise) tesseractInitPromise = null;
+      }
+    }
+
+    async function runOCR(imageDataUrl, { manageProgress = true } = {}) {
+      const ok = await initTesseract({ manageProgress });
+      if (!ok || !tesseractWorker) {
+        throw new Error('Tesseract初期化失敗');
+      }
+      // Try multiple PSM modes for best results
+      const modes = [
+        { psm: 10, label: 'single char' },   // Single character
+        { psm: 8, label: 'single word' },     // Single word
+        { psm: 13, label: 'raw line' },       // Raw line (no OSD)
+      ];
+      // Tesseract.js keys pending calls by `${action}-${id}`. Without explicit
+      // IDs, a cancelled run and its replacement both use `undefined` and the
+      // second promise can be resolved by the first worker response. Serialize
+      // the calls and give every one a unique ID.
+      const task = async () => {
+        let bestResult = '';
+        let bestConfidence = -1; // confidence 0 の候補も採用するため
+        for (const mode of modes) {
+          const jobId = `ocr-${++ocrJobCounter}`;
+          try {
+            await tesseractWorker.setParameters(
+              { tessedit_pageseg_mode: mode.psm }, `${jobId}-params`);
+            const { data } = await tesseractWorker.recognize(
+              imageDataUrl, {}, undefined, `${jobId}-recognize`);
+            const text = (data.text || '').trim();
+            const conf = data.confidence || 0;
+            const match = text.match(/[\u4e00-\u9fff]/);
+            if (match && conf > bestConfidence) {
+              bestResult = match[0];
+              bestConfidence = conf;
+            }
+            if (bestConfidence > 80) break; // Good enough
+          } catch (e) {
+            console.warn(`PSM ${mode.psm} failed:`, e);
+          }
+        }
+        return bestResult;
+      };
+      const result = ocrQueue.then(task, task);
+      ocrQueue = result.catch(() => {});
+      return result;
+    }
+
+    // ---- 音声合成（Piper ニューラルTTS + SpeechSynthesis フォールバック） ----
+    function setTtsStatus(text) {
+      ttsStatus.textContent = text || '';
+    }
+
+    function browserVoices() {
+      return window.speechSynthesis ? (window.speechSynthesis.getVoices() || []) : [];
+    }
+
+    function browserVoiceDefault() {
+      const voices = browserVoices();
+      if (!voices.length) return '';
+      const zh = voices.filter(v => v.lang.startsWith('zh'));
+      const natural = zh.find(v => /natural|neural|premium|enhanced/i.test(v.name));
+      const best = natural || zh.find(v => v.lang === 'zh-CN') || zh[0] || voices[0];
+      return 'ss:' + best.name;
+    }
+
+    function addVoiceOption(parent, value, label) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      parent.appendChild(option);
+    }
+
+    function renderVoiceOptions(preferredValue) {
+      const previous = preferredValue || voiceSelect.value;
+      voiceSelect.innerHTML = '';
+
+      const piperGroup = document.createElement('optgroup');
+      piperGroup.label = 'Piper（ブラウザ内ニューラル）';
+      Object.entries(PIPER_VOICES).forEach(([value, voice]) => {
+        addVoiceOption(piperGroup, value, `Piper 中国語（${voice.label}・${voice.note}）`);
+      });
+      voiceSelect.appendChild(piperGroup);
+
+      const voices = browserVoices();
+      if (voices.length) {
+        const zhGroup = document.createElement('optgroup');
+        zhGroup.label = '中国語音声（ブラウザ）';
+        voices.filter(v => v.lang.startsWith('zh')).forEach(v => {
+          addVoiceOption(zhGroup, 'ss:' + v.name, `${v.name} (${v.lang})`);
+        });
+        if (zhGroup.children.length) voiceSelect.appendChild(zhGroup);
+
+        const otherGroup = document.createElement('optgroup');
+        otherGroup.label = 'その他（ブラウザ）';
+        voices.filter(v => !v.lang.startsWith('zh')).forEach(v => {
+          addVoiceOption(otherGroup, 'ss:' + v.name, `${v.name} (${v.lang})`);
+        });
+        if (otherGroup.children.length) voiceSelect.appendChild(otherGroup);
+      } else {
+        addVoiceOption(voiceSelect, '', 'ブラウザ音声なし（Piperは利用可）');
+      }
+
+      const values = Array.from(voiceSelect.options).map(o => o.value);
+      let target = previous;
+      if (!values.includes(target)) target = DEFAULT_VOICE;
+      if (!values.includes(target)) target = browserVoiceDefault();
+      if (values.includes(target)) voiceSelect.value = target;
+      updateSelectedVoice();
+      updateTtsControls();
+    }
+
+    function updateSelectedVoice() {
+      const value = voiceSelect.value || '';
+      const name = value.startsWith('ss:') ? value.slice(3) : '';
+      selectedVoice = name ? browserVoices().find(v => v.name === name) || null : null;
+    }
+
+    function updateTtsControls() {
+      const isPiper = voiceSelect.value.startsWith('piper:');
+      pitchSlider.disabled = isPiper;
+      pitchSlider.title = isPiper ? 'Piperでは音程調整はできません' : '音程';
+      if (isPiper) pitchLabel.textContent = '—';
+      else pitchLabel.textContent = ttsPitch.toFixed(1);
+      if (activeButton) return;
+      if (isPiper) {
+        const voice = PIPER_VOICES[voiceSelect.value];
+        setTtsStatus(`Piper（${voice ? voice.label : 'ニューラル'}）・同梱モデルを使用`);
+      } else {
+        setTtsStatus(selectedVoice ? `ブラウザ音声: ${selectedVoice.name}` : 'ブラウザ標準音声');
+      }
+    }
+
+    renderVoiceOptions(DEFAULT_VOICE);
+    pruneOldPiperCaches();
+    if (window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => renderVoiceOptions();
+    }
+
+    voiceSelect.addEventListener('change', () => {
+      stopSpeaking();
+      updateSelectedVoice();
+      updateTtsControls();
+    });
+
+    const PLAYBACK_LABELS = new Map([
+      [playPinyinBtn, '漢字の読み上げ'],
+      [playExampleBtn, '例文の読み上げ']
+    ]);
+
+    function resetPlaybackUI() {
+      [playPinyinBtn, playExampleBtn].forEach(b => {
+        b.classList.remove('playing');
+        b.textContent = '▶ 再生';
+        b.setAttribute('aria-label', (PLAYBACK_LABELS.get(b) || '音声') + 'を再生');
+      });
+      activeButton = null;
+    }
+
+    function beginPlaybackUI(btn, token) {
+      if (token !== playbackToken) return false;
+      resetPlaybackUI();
+      activeButton = btn;
+      btn.classList.add('playing');
+      btn.textContent = '⏹ 停止';
+      btn.setAttribute('aria-label', (PLAYBACK_LABELS.get(btn) || '音声') + 'を停止');
+      return true;
+    }
+
+    function endPlaybackUI(token) {
+      if (token === playbackToken) resetPlaybackUI();
+    }
+
+    function restoreFallbackVoice() {
+      if (!fallbackVoiceRestore) return;
+      const { restore, temporary } = fallbackVoiceRestore;
+      fallbackVoiceRestore = null;
+      // A different selection made during the fallback belongs to the user.
+      if (voiceSelect.value !== temporary) return;
+      voiceSelect.value = restore;
+      updateSelectedVoice();
+      updateTtsControls();
+    }
+
+    function stopSpeaking() {
+      // Stop and replacement playback both end the temporary fallback.
+      restoreFallbackVoice();
+      playbackToken++;
+      // A remote Piper download can stall; Stop must release it immediately.
+      // Clear the in-flight record synchronously too: a replacement playback in
+      // the same task must not join a promise whose signal was just aborted.
+      piperLoading = null;
+      piperFetchControllers.forEach(controller => controller.abort());
+      piperFetchControllers.clear();
+      if (activeAudio) {
+        const audio = activeAudio;
+        activeAudio = null;
+        audio.onended = null;
+        audio.onerror = null;
+        try { audio.pause(); audio.currentTime = 0; } catch (e) { /* ignore */ }
+      }
+      if (activeAudioUrl) {
+        URL.revokeObjectURL(activeAudioUrl);
+        activeAudioUrl = null;
+      }
+      if (activeUtterance) {
+        activeUtterance.onend = null;
+        activeUtterance.onerror = null;
+        activeUtterance = null;
+      }
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      resetPlaybackUI();
+      setTtsStatus('');
+    }
+
+    function speakWithBrowser(text, btn, token, statusText = 'ブラウザ音声で再生中', onFinish = null) {
+      const finish = () => {
+        if (token === playbackToken && typeof onFinish === 'function') onFinish();
+      };
+      if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance === 'undefined') {
+        showMessage('このブラウザは音声合成に対応していません。', 3000, true);
+        endPlaybackUI(token);
+        setTtsStatus('');
+        finish();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-CN';
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.rate = ttsRate;
+      utterance.pitch = ttsPitch;
+      utterance.onend = () => {
+        if (activeUtterance === utterance) activeUtterance = null;
+        endPlaybackUI(token);
+        setTtsStatus('');
+        finish();
+      };
+      utterance.onerror = (e) => {
+        if (activeUtterance === utterance) activeUtterance = null;
+        if (e && (e.error === 'canceled' || e.error === 'interrupted')) {
+          endPlaybackUI(token);
+          setTtsStatus('');
+          finish();
+          return;
+        }
+        console.error('Speech error:', e);
+        endPlaybackUI(token);
+        setTtsStatus('');
+        showMessage('音声の再生に失敗しました。', 3000, true);
+        finish();
+      };
+      if (!beginPlaybackUI(btn, token)) return;
+      activeUtterance = utterance;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      setTtsStatus(statusText);
+    }
+
+    async function loadPiperRuntime() {
+      if (window.ort && window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return;
+      setTtsStatus('ニューラル音声のエンジンを読み込み中...');
+      const ortAsset = await resolveAsset('vendor/ort/ort.min.js', ORT_BASE + 'ort.min.js');
+      if (!(await requireLocalAssets(ORT_LOCAL_ASSETS))) {
+        throw new Error('PiperのWASMアセットがローカルにありません。tools/fetch-assets.py を実行してください。');
+      }
+      await loadScript(ortAsset.url, ortAsset.integrity);
+      const pinyinAsset = await resolveAsset('vendor/pinyin/pinyin-pro.js', PINYIN_PRO_BASE + 'index.js');
+      await loadScript(pinyinAsset.url, pinyinAsset.integrity);
+      if (!window.ort || !window.pinyinPro || typeof window.pinyinPro.pinyin !== 'function') {
+        throw new Error('Piper runtime load failed');
+      }
+      // ORT loads .mjs/.wasm internally; use the verified local copies even
+      // when the main script came from the SRI-protected CDN.
+      window.ort.env.wasm.wasmPaths = new URL('vendor/ort/', location.href).href;
+      window.ort.env.wasm.numThreads = 1;
+      window.ort.env.wasm.proxy = false;
+    }
+
+    async function verifyBlobIntegrity(blob, integrity) {
+      if (!integrity) return;
+      if (!window.crypto || !crypto.subtle) {
+        throw new Error('整合性検証に必要な Web Crypto API が利用できません。');
+      }
+      const expected = /^sha256-([A-Za-z0-9+/]+={0,2})$/.exec(integrity);
+      if (!expected) throw new Error('不正な SRI 形式です: ' + integrity);
+      const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+      const actual = 'sha256-' + btoa(String.fromCharCode(...new Uint8Array(digest)));
+      if (actual !== integrity) {
+        throw new Error(`ファイルの整合性検証に失敗しました（期待: ${integrity} / 実際: ${actual}）`);
+      }
+    }
+
+    async function cachedFetch(url, onProgress, integrity = '', signal = null) {
+      // Only integrity-verified remote downloads are cached. Vendored local
+      // assets are verified by tools/fetch-assets.py at build time; caching
+      // them without a content hash could serve stale files after an update.
+      const assertActive = () => {
+        if (signal && signal.aborted) throw new DOMException('Piper fetch aborted', 'AbortError');
+      };
+      assertActive();
+      let cache = null;
+      if (integrity) {
+        try {
+          if (window.caches) cache = await caches.open(PIPER_CACHE_NAME);
+        } catch (e) {
+          console.warn('Cache API unavailable:', e);
+        }
+      }
+      assertActive();
+      const cacheKey = integrity ? `${url}?sarutahico_sri=${encodeURIComponent(integrity)}` : '';
+      if (cache) {
+        try {
+          const hit = await cache.match(cacheKey);
+          if (hit) {
+            const cachedBlob = await hit.blob();
+            await verifyBlobIntegrity(cachedBlob, integrity);
+            assertActive();
+            return cachedBlob;
+          }
+        } catch (e) {
+          if (signal && signal.aborted) throw e;
+          // A tampered or unreadable cache entry must not be trusted. Drop it
+          // and fall through to a fresh, integrity-verified download.
+          console.warn('Cached Piper asset rejected:', e);
+          try { await cache.delete(cacheKey); } catch (deleteErr) { /* ignore */ }
+        }
+      }
+
+      assertActive();
+      const res = await fetch(url, signal ? { signal } : undefined);
+      if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+      const total = Number(res.headers.get('Content-Length') || 0);
+      let blob;
+      if (res.body && typeof res.body.getReader === 'function' && total > 0 && onProgress) {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          onProgress(loaded, total);
+        }
+        blob = new Blob(chunks, { type: res.headers.get('Content-Type') || '' });
+      } else {
+        blob = await res.blob();
+      }
+      assertActive();
+      if (integrity) await verifyBlobIntegrity(blob, integrity);
+      if (cache) {
+        try {
+          await cache.put(cacheKey, new Response(blob, {
+            headers: { 'Content-Type': blob.type || 'application/octet-stream' }
+          }));
+        } catch (e) {
+          console.warn('Cache write failed:', e);
+        }
+      }
+      assertActive();
+      return blob;
+    }
+
+    async function pruneOldPiperCaches() {
+      if (!window.caches || !caches.keys) return;
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys
+          .filter(key => key.startsWith('sarutahico-piper-') && key !== PIPER_CACHE_NAME)
+          .map(key => caches.delete(key)));
+      } catch (e) {
+        console.warn('Old cache cleanup failed:', e);
+      }
+    }
+
+    function pcmToWav(pcm, sampleRate) {
+      const buffer = new ArrayBuffer(44 + pcm.length * 2);
+      const view = new DataView(buffer);
+      const writeText = (offset, text) => {
+        for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+      };
+      writeText(0, 'RIFF');
+      view.setUint32(4, buffer.byteLength - 8, true);
+      writeText(8, 'WAVE');
+      writeText(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeText(36, 'data');
+      view.setUint32(40, pcm.length * 2, true);
+      for (let i = 0; i < pcm.length; i++) {
+        const x = Math.max(-1, Math.min(1, pcm[i]));
+        view.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+      }
+      return buffer;
+    }
+
+    async function getPiperSession(voiceId) {
+      const voice = PIPER_VOICES[voiceId];
+      if (!voice) throw new Error('Unknown Piper voice: ' + voiceId);
+      if (piperSession && piperSession.voiceId === voiceId) return piperSession;
+      if (piperLoading && piperLoading.voiceId === voiceId) return piperLoading.promise;
+
+      // A preparation promise can be joined by a new request after a stop.
+      // Bind it to the playback token so a superseded preparation cannot
+      // overwrite status or the active session. Remote downloads also get a
+      // deadline and an abort handle for stalled fallbacks.
+      const requestToken = playbackToken;
+      const fetchController = new AbortController();
+      const fetchTimeoutId = setTimeout(() => fetchController.abort(), PIPER_FETCH_TIMEOUT_MS);
+      piperFetchControllers.add(fetchController);
+      const setPrepStatus = (text) => {
+        if (requestToken !== playbackToken) return;
+        if (!(activeButton && voiceSelect.value === voiceId)) return;
+        const match = text.match(/(\d+)%/);
+        if (match) {
+          const pct = Number(match[1]);
+          if (pct !== 0 && pct !== 100 && pct % 10 !== 0) return;
+        }
+        setTtsStatus(text);
+      };
+      const promise = (async () => {
+        await loadPiperRuntime();
+        const modelAsset = await resolveAsset(
+          `vendor/piper/models/${voice.path}.onnx`,
+          `${PIPER_VOICES_URL}/${voice.path}.onnx`,
+          { requireSri: false } // PIPER_ASSET_SRI でダウンロード後に検証する
+        );
+        const base = modelAsset.local ? `vendor/piper/models/${voice.path}` : `${PIPER_VOICES_URL}/${voice.path}`;
+        // Vendored files are verified by tools/fetch-assets.py. A remote
+        // fallback is unverified, so check its SHA-256 before use/cache.
+        const configSri = modelAsset.local ? '' : (PIPER_ASSET_SRI[voice.path + '.onnx.json'] || '');
+        const modelSri = modelAsset.local ? '' : (PIPER_ASSET_SRI[voice.path + '.onnx'] || '');
+        if (!modelAsset.local && (!configSri || !modelSri)) {
+          throw new Error('この音声の SRI が定義されていません。');
+        }
+        setPrepStatus('ニューラル音声の設定を読み込み中...');
+        const configBlob = await cachedFetch(base + '.onnx.json', null, configSri, fetchController.signal);
+        const config = JSON.parse(await configBlob.text());
+        setPrepStatus('ニューラル音声のモデルを読み込み中...');
+        const modelBlob = await cachedFetch(base + '.onnx', (loaded, total) => {
+          const pct = Math.round(loaded * 100 / total);
+          setPrepStatus(`モデルを取得中... ${pct}%`);
+        }, modelSri, fetchController.signal);
+        const session = await window.ort.InferenceSession.create(await modelBlob.arrayBuffer(), {
+          executionProviders: ['wasm']
+        });
+
+        // Follow piper1-gpl's pinyin frontend so the ID sequence matches training:
+        // zero initial "Ø", ü-family "v", neutral tone 5, and punctuation symbols.
+        // This avoids the espeak phonemizer and its 18 MB assets.
+        const idMap = config.phoneme_id_map || {};
+        const has = (symbol) => Array.isArray(idMap[symbol]);
+        const phonemize = (text) => {
+          // Digits are not in the phoneme map. Expand them before pinyin
+          // conversion; years are read digit-by-digit with 〇.
+          const source = expandChineseNumbers(text).replace(/\s+/g, ' ');
+          const syllables = window.pinyinPro.pinyin(source, {
+            toneType: 'num', type: 'array', nonZh: 'consecutive'
+          }).map(item => String(item));
+          const phonemes = [];
+          const dropped = [];
+          syllables.forEach(item => {
+            const symbol = String(item);
+            const match = symbol.toLowerCase().match(/^([a-zü]+)([0-5])$/);
+            if (!match) {
+              // pinyin-pro groups consecutive non-Chinese characters, e.g.
+              // "。 " or "！！"; the voice map only has single symbols.
+              // Keep every known character in order instead of dropping the
+              // whole cluster.
+              Array.from(symbol).forEach(single => {
+                // Tone-less pinyin-like input can reach here (e.g. "nü").
+                // The voice map uses "v" for ü; other characters are kept
+                // as-is so arbitrary Latin text is not mispronounced.
+                const normalized = single === 'ü' ? 'v' : single;
+                if (has(normalized)) phonemes.push(normalized);
+                else dropped.push(single);
+              });
+              return;
+            }
+            let body = match[1].replace(/ü/g, 'v');
+            const initial = PINYIN_INITIALS.find(x => body.startsWith(x) && has(x));
+            if (initial) {
+              phonemes.push(initial);
+              body = body.slice(initial.length);
+              // pinyin-pro already matches upstream g2pW for j/q/x/y finals
+              // (ju/quan/yue/yun stay plain u; see upstream test_phonemize:
+              // 语 -> ["y","u","3"]). Only literal ü from n/l was normalized
+              // to v above. Do not add an extra u->v conversion here: it
+              // would deviate from the sequence used to train chaowen.
+            } else if (has('Ø')) {
+              phonemes.push('Ø');
+            }
+            if (body && has(body)) phonemes.push(body);
+            else if (body) dropped.push(body);
+            // pinyin-pro emits tone 0 for neutral syllables; chaowen's map uses 5.
+            const tone = match[2] === '0' ? '5' : match[2];
+            if (tone && has(tone)) phonemes.push(tone);
+          });
+          if (dropped.length) console.warn('[piper] Unknown pinyin symbols omitted:', dropped);
+          return { phonemes };
+        };
+        if (requestToken !== playbackToken) {
+          // A newer playback started while this model was loading. Do not let
+          // the stale session become active or keep ORT native memory alive.
+          try { if (typeof session.release === 'function') session.release(); } catch (e) { /* ignore */ }
+          throw new Error('Superseded Piper preparation');
+        }
+        piperSession = { voiceId, session, config, phonemize };
+        setPrepStatus(`Piper（${voice.label}）の準備ができました`);
+        return piperSession;
+      })();
+
+      piperLoading = { voiceId, promise };
+      try {
+        return await promise;
+      } finally {
+        clearTimeout(fetchTimeoutId);
+        piperFetchControllers.delete(fetchController);
+        if (piperLoading && piperLoading.promise === promise) piperLoading = null;
+      }
+    }
+
+    async function speakWithPiper(text, btn, token) {
+      if (!beginPlaybackUI(btn, token)) return;
+      const requestedVoiceId = voiceSelect.value;
+      let audioErrorHandled = false;
+      // One fallback path for every Piper failure. audio.onerror and a
+      // subsequent audio.play() rejection can both fire for the same media
+      // error; only the first one may switch voices and notify the user.
+      const fallbackToBrowser = (reason = 'prepare') => {
+        if (token !== playbackToken) return;
+        if (activeAudio) {
+          const audio = activeAudio;
+          activeAudio = null;
+          audio.onended = null;
+          audio.onerror = null;
+          try { audio.pause(); audio.currentTime = 0; } catch (e) { /* ignore */ }
+        }
+        if (activeAudioUrl) {
+          URL.revokeObjectURL(activeAudioUrl);
+          activeAudioUrl = null;
+        }
+        resetPlaybackUI();
+        const fallbackValue = browserVoiceDefault() || '';
+        voiceSelect.value = fallbackValue;
+        fallbackVoiceRestore = { restore: requestedVoiceId, temporary: fallbackValue };
+        updateSelectedVoice();
+        updateTtsControls();
+        const message = reason === 'audio'
+          ? '音声の再生に失敗したため、ブラウザ音声で再生します。'
+          : reason === 'noPhonemes'
+            ? 'この文字は中国語音声で読み上げられません。ブラウザ音声で再生します。'
+            : 'ニューラル音声の準備に失敗したため、ブラウザ音声で再生します。';
+        showMessage(message, 5000);
+        speakWithBrowser(text, btn, token, 'ブラウザ音声に切り替えて再生中', () => {
+          // The fallback is for this playback only. Stop/replacement also
+          // restores the voice, so this is just the normal completion path.
+          restoreFallbackVoice();
+          // restoreFallbackVoice() updates controls and can reselect the Piper
+          // status; playback has ended, so clear it like every other path.
+          setTtsStatus('');
+        });
+      };
+      try {
+        const voiceId = voiceSelect.value;
+        const engine = await getPiperSession(voiceId);
+        if (token !== playbackToken) return;
+        setTtsStatus('ニューラル音声を生成中...');
+        const phonemes = engine.phonemize(text);
+        if (token !== playbackToken) return;
+        // Map by symbol so IDs outside the model's embedding cannot reach it.
+        // piper1-gpl resets BOS/EOS and runs inference per sentence.
+        const idMap = engine.config.phoneme_id_map || {};
+        const idOf = (symbol, fallback) => Array.isArray(idMap[symbol]) ? Number(idMap[symbol][0]) : fallback;
+        const bos = idOf('^', 1);
+        const eos = idOf('$', 2);
+        const pad = idOf('_', 0);
+        const sentenceEnd = new Set(['。', '？', '?', '！', '!', '…', '.']);
+        const dropped = [];
+        const groups = [];
+        let current = [];
+        let pendingSentenceEnd = false;
+        // Upstream stream_to_sentences() treats a consecutive run of sentence
+        // enders as one boundary. Splitting at every symbol would add extra
+        // BOS/EOS/pad pairs for input such as 你好！！！.
+        (phonemes.phonemes || []).forEach(phoneme => {
+          const isSentenceEnd = sentenceEnd.has(phoneme);
+          if (pendingSentenceEnd && !isSentenceEnd) {
+            groups.push(current);
+            current = [];
+            pendingSentenceEnd = false;
+          }
+          current.push(phoneme);
+          if (isSentenceEnd) pendingSentenceEnd = true;
+        });
+        if (current.length) groups.push(current);
+
+        const idGroups = [];
+        groups.forEach(group => {
+          if (!group.some(symbol => symbol !== ' ')) return;
+          const ids = [bos];
+          group.forEach(phoneme => {
+            const mapped = idMap[phoneme];
+            if (!Array.isArray(mapped)) {
+              dropped.push(phoneme);
+              return;
+            }
+            mapped.forEach(id => ids.push(Number(id)));
+            if (PIPER_GROUP_END.has(phoneme)) ids.push(pad);
+          });
+          ids.push(eos);
+          if (ids.length > 3) idGroups.push(ids);
+        });
+        if (dropped.length) console.warn('[piper] Unsupported phonemes omitted:', dropped);
+        if (token !== playbackToken) return;
+        if (!idGroups.length) throw new Error('No phonemes recognized by the voice model');
+
+        const inf = engine.config.inference;
+        const scales = Float32Array.from([
+          inf.noise_scale, inf.length_scale / ttsRate, inf.noise_w
+        ]);
+        const speakerIds = engine.config.speaker_id_map && Object.keys(engine.config.speaker_id_map).length
+          ? BigInt64Array.from([0n])
+          : null;
+        const pcmChunks = [];
+        let pcmLength = 0;
+        for (const ids of idGroups) {
+          const feeds = {
+            input: new window.ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
+            input_lengths: new window.ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)])),
+            scales: new window.ort.Tensor('float32', Float32Array.from(scales))
+          };
+          if (speakerIds) feeds.sid = new window.ort.Tensor('int64', speakerIds);
+          const result = await engine.session.run(feeds);
+          if (token !== playbackToken) return;
+          const outputTensor = result.output || result[Object.keys(result)[0]];
+          const chunk = new Float32Array(outputTensor.data.length);
+          chunk.set(outputTensor.data);
+          pcmChunks.push(chunk);
+          pcmLength += chunk.length;
+        }
+        const pcm = new Float32Array(pcmLength);
+        let pcmOffset = 0;
+        pcmChunks.forEach(chunk => {
+          pcm.set(chunk, pcmOffset);
+          pcmOffset += chunk.length;
+        });
+        const wav = pcmToWav(pcm, engine.config.audio.sample_rate);
+        const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+        if (token !== playbackToken || activeButton !== btn) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+        const audio = new Audio(url);
+        activeAudioUrl = url;
+        activeAudio = audio;
+        activeAudio.dataset.engine = 'piper';
+        audio.onended = () => {
+          if (activeAudio !== audio) return;
+          activeAudio = null;
+          if (activeAudioUrl === url) {
+            URL.revokeObjectURL(url);
+            activeAudioUrl = null;
+          }
+          endPlaybackUI(token);
+          setTtsStatus('');
+        };
+        audio.onerror = (e) => {
+          if (activeAudio !== audio) return;
+          audioErrorHandled = true;
+          console.error('Piper audio error:', e);
+          activeAudio = null;
+          if (activeAudioUrl === url) {
+            URL.revokeObjectURL(url);
+            activeAudioUrl = null;
+          }
+          fallbackToBrowser('audio');
+        };
+        await audio.play();
+        if (token !== playbackToken || activeAudio !== audio) return;
+        setTtsStatus(`Piper（${PIPER_VOICES[voiceId].label}）で再生中`);
+      } catch (err) {
+        // audio.onerror already started the single fallback; the rejected
+        // play() promise must not switch voices or notify a second time.
+        if (audioErrorHandled) return;
+        if (token !== playbackToken) return;
+        console.error('Piper TTS error:', err);
+        const noPhonemes = err && err.message === 'No phonemes recognized by the voice model';
+        fallbackToBrowser(noPhonemes ? 'noPhonemes' : 'prepare');
+      }
+    }
+
+    function playText(text, btn) {
+      if (!text) return;
+      const sameButton = activeButton === btn;
+      const speaking = window.speechSynthesis && window.speechSynthesis.speaking;
+      if (activeButton || activeAudio || activeUtterance || speaking) {
+        stopSpeaking();
+        if (sameButton) return;
+      }
+      const token = ++playbackToken;
+      if (voiceSelect.value.startsWith('piper:')) {
+        speakWithPiper(text, btn, token);
+      } else {
+        speakWithBrowser(text, btn, token);
+      }
+    }
+
+    playPinyinBtn.addEventListener('click', () => playText(currentKanjiText, playPinyinBtn));
+    playExampleBtn.addEventListener('click', () => playText(currentExampleText, playExampleBtn));
+
+    // ---- 手動辞書検索 ----
+    function displayResult(result) {
+      stopSpeaking();
+      detectedKanjiEl.textContent = result.kanji || '--';
+      meaningEl.textContent = result.meaning || '--';
+      pinyinEl.textContent = result.pinyin || '--';
+      setExampleText(result.example);
+      currentKanjiText = (result.kanji && result.kanji !== '--') ? result.kanji.charAt(0) : '';
+      let exampleChinese = result.example || '';
+      if (exampleChinese.includes('/')) {
+        exampleChinese = exampleChinese.split('/')[0].trim();
+      }
+      const unavailableExample = /^（[^）]*未登録[^）]*）$/.test(exampleChinese);
+      currentExampleText = (exampleChinese && exampleChinese !== '--' && !unavailableExample) ? exampleChinese : '';
+      playPinyinBtn.disabled = !currentKanjiText;
+      playExampleBtn.disabled = !currentExampleText;
+      // Manual lookup and OCR both update the DOM silently; announce the same
+      // result as a polite summary for screen-reader users.
+      const parts = [`漢字: ${detectedKanjiEl.textContent}`];
+      if (pinyinEl.textContent && pinyinEl.textContent !== '--') parts.push(`ピンイン: ${pinyinEl.textContent}`);
+      if (meaningEl.textContent && meaningEl.textContent !== '--') parts.push(`意味: ${meaningEl.textContent}`);
+      if (exampleEl.textContent && exampleEl.textContent !== '--') parts.push(`例文: ${exampleEl.textContent}`);
+      const token = (resultLiveEl._token || 0) + 1;
+      resultLiveEl._token = token;
+      resultLiveEl.textContent = '';
+      requestAnimationFrame(() => {
+        if (resultLiveEl._token === token) resultLiveEl.textContent = parts.join('。') + '。';
+      });
+    }
+
+    lookupBtn.addEventListener('click', () => {
+      cancelAnalysis();
+      const kanji = manualKanjiInput.value.trim();
+      if (!kanji) {
+        showMessage('漢字を1文字入力してください。');
+        return;
+      }
+      const result = lookupDictionary(kanji.charAt(0));
+      displayResult(result);
+      if (result.meaning && result.meaning.includes('未登録')) {
+        showMessage('内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください。', 5000);
+      }
+    });
+
+    manualKanjiInput.addEventListener('keydown', (e) => {
+      // Enter commits an IME candidate; do not search the uncommitted value.
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+        lookupBtn.click();
+      }
+    });
+
+    // ---- メイン処理 ----
+    analyzeBtn.addEventListener('click', async () => {
+      if (analysisActive || analyzeBtn.getAttribute('aria-disabled') === 'true') return;
+      if (isCanvasEmpty()) {
+        showMessage('キャンバスが空です。文字を描くか画像をアップロードしてください。');
+        return;
+      }
+      const focusBeforeAnalysis = document.activeElement;
+      const generation = ++analysisGeneration;
+      analysisActive = true;
+      analysisController = new AbortController();
+      let completed = false;
+      try {
+        analyzeBtn.setAttribute('aria-disabled', 'true');
+        analyzeBtn.innerHTML = '<span class="spinner"></span>解析中...';
+        resultPanel.setAttribute('aria-busy', 'true');
+        analysisStatusEl.textContent = '解析中です';
+        stopSpeaking();
+
+        detectedKanjiEl.textContent = '--';
+        meaningEl.textContent = '--';
+        pinyinEl.textContent = '--';
+        setExampleText('--');
+        currentKanjiText = '';
+        currentExampleText = '';
+        playPinyinBtn.disabled = true;
+        playExampleBtn.disabled = true;
+
+        const dataUrl = canvas.toDataURL('image/png');
+
+        if (useApiMode) {
+          // APIモード
+          const kanji = await extractKanjiFromImage(dataUrl);
+          if (generation !== analysisGeneration) return;
+          if (kanji === null) {
+            meaningEl.textContent = lastMessageText || 'APIの設定を確認してください。';
+            return;
+          }
+          if (!kanji) {
+            meaningEl.textContent = '漢字が見つかりませんでした。はっきりとした文字を描くか、別の画像を試してください。';
+            return;
+          }
+          const result = await generateDetailsForKanji(kanji);
+          if (generation !== analysisGeneration) return;
+          if (!result) return;
+          displayResult(result);
+          completed = true;
+        } else {
+          // オフラインモード: 画像前処理 + Tesseract.js OCR
+          try {
+            showProgress(true);
+            setProgress(5);
+            showMessage('OCR認識中...（初回は言語データの読み込みに時間がかかります）', 15000);
+
+            // Preprocess image for better OCR
+            const processedDataUrl = preprocessCanvas();
+            setProgress(15);
+
+            const kanji = await runOCR(processedDataUrl, { manageProgress: false });
+            if (generation !== analysisGeneration) return;
+            setProgress(90);
+
+            if (kanji) {
+              const result = lookupDictionary(kanji);
+              displayResult(result);
+              completed = true;
+              if (result.meaning === '（辞書に未登録）') {
+                showMessage('認識された漢字: ' + kanji + '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）', 5000);
+              } else {
+                showMessage('認識された漢字: ' + kanji, 3000);
+              }
+            } else {
+              // Fallback: try original image without preprocessing
+              const kanji2 = await runOCR(dataUrl, { manageProgress: false });
+              if (generation !== analysisGeneration) return;
+              if (kanji2) {
+                const result = lookupDictionary(kanji2);
+                displayResult(result);
+                completed = true;
+                showMessage('認識された漢字: ' + kanji2, 3000);
+              } else {
+                showMessage('漢字を認識できませんでした。手動入力をお使いください。', 5000);
+                meaningEl.textContent = 'API不要モード: 下の入力欄に漢字を入力して検索してください。';
+              }
+            }
+            setProgress(100);
+            scheduleProgressHide(1000);
+          } catch (ocrErr) {
+            if (generation !== analysisGeneration) return;
+            console.error('OCR Error:', ocrErr && ocrErr.message ? ocrErr.message : ocrErr);
+            showProgress(false);
+            showMessage('OCR認識に失敗しました。手動入力をお使いください。', 0, true);
+            meaningEl.textContent = 'API不要モード: 下の入力欄に漢字を入力して検索してください。';
+          }
+        }
+
+      } catch (err) {
+        if (generation !== analysisGeneration) return;
+        console.error('Analysis Error:', err);
+        showMessage('解析中に予期せぬエラーが発生しました。', 3000, true);
+      } finally {
+        if (generation !== analysisGeneration) return;
+        analysisActive = false;
+        analysisController = null;
+        analyzeBtn.removeAttribute('aria-disabled');
+        analyzeBtn.textContent = '漢字分析';
+        resultPanel.removeAttribute('aria-busy');
+        analysisStatusEl.textContent = completed ? '解析が完了しました' : '解析に失敗しました';
+        const currentFocus = document.activeElement;
+        if (focusBeforeAnalysis && focusBeforeAnalysis.isConnected &&
+            typeof focusBeforeAnalysis.focus === 'function' &&
+            (currentFocus === focusBeforeAnalysis || currentFocus === document.body)) {
+          focusBeforeAnalysis.focus();
+        }
+      }
+    });
+
+  </script>
+</body>
+</html>

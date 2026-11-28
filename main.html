@@ -31,6 +31,7 @@
     .canvas-wrap{background:#fff;padding:16px;border-radius:10px;border:3px solid var(--gold);display:flex;flex-direction:column;align-items:center}
     canvas#drawCanvas{background:#fff;width:360px;height:360px;border:2px solid #ddd;border-radius:6px; touch-action: none; cursor:crosshair;}
     .canvas-stage{position:relative;display:inline-block;max-width:100%;}
+    .canvas-stage.drag-over canvas#drawCanvas{border-color:var(--purple);box-shadow:0 0 0 3px rgba(117,96,143,0.28);}
     #kbCursor{position:absolute;display:none;width:18px;height:18px;border:2px solid var(--purple);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 0 1px #fff;}
     #kbCursor.visible{display:block;}
 
@@ -48,7 +49,15 @@
     .mode-btn{background:var(--purple);color:#fff;font-size:13px;padding:8px 12px;}
 
     .right{display:flex;flex-direction:column;gap:12px}
-    .result h2{margin:0 0 8px 0;color:var(--purple)}
+    .result-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+    .result h2{margin:0;color:var(--purple)}
+    .copy-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--purple);background:#fff;color:var(--purple);font-weight:600;font-size:12px;cursor:pointer;transition:all 0.2s;}
+    .copy-btn:hover:not(:disabled){background:#f0ecf5;}
+    .copy-btn:disabled{border-color:#ccc;color:#666;cursor:not-allowed;opacity:0.6;}
+    .history-section{margin-top:8px;padding-top:8px;border-top:1px solid #eee;}
+    .history-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+    .history-chip{min-width:44px;height:44px;padding:0 10px;border-radius:8px;border:1px solid #ddd;background:var(--ivory);color:#222;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.15s;}
+    .history-chip:hover{border-color:var(--purple);background:#f0ecf5;}
     .field{margin-bottom:12px}
     .field b{display:block;margin-bottom:6px; color: #555;}
     .field div { min-height: 20px; padding: 4px; word-break:break-word; }
@@ -61,13 +70,16 @@
     .play-btn.playing{background:var(--green);}
 
     .message-box {
-      display: block; position: fixed; top: 20px; left: 50%; transform: translate(-50%,-200%);
+      display: flex; align-items: center; gap: 12px; position: fixed; top: 20px; left: 50%; transform: translate(-50%,-200%);
       opacity: 0; visibility: hidden; pointer-events: none;
-      background-color: var(--red); color: white; padding: 16px 24px; border-radius: 10px;
+      background-color: var(--purple); color: white; padding: 12px 18px; border-radius: 10px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.2); z-index: 1000; max-width:90vw;
       transition: opacity 0.15s, transform 0.15s;
     }
-    .message-box.visible{transform:translate(-50%,0);opacity:1;visibility:visible;}
+    .message-box.urgent { background-color: var(--red); }
+    .message-box.visible{transform:translate(-50%,0);opacity:1;visibility:visible;pointer-events:auto;}
+    .message-close{background:transparent;border:1px solid rgba(255,255,255,0.6);color:#fff;border-radius:6px;width:28px;height:28px;line-height:1;font-size:16px;font-weight:700;cursor:pointer;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;}
+    .message-close:hover{background:rgba(255,255,255,0.18);}
 
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px;}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -148,7 +160,7 @@
           <canvas id="drawCanvas" width="720" height="720" title="手書きキャンバス" tabindex="0" role="application" aria-label="手書きキャンバス" aria-describedby="canvasKeyboardHelp"></canvas>
           <div id="kbCursor" aria-hidden="true"></div>
         </div>
-        <div id="canvasKeyboardHelp" class="visually-hidden">フォーカス中に矢印キーでカーソルを移動し、スペースまたはEnterで描画の開始・終了、Escで現在の線を取り消し、Ctrl+Zで元に戻します。Tabでキャンバスから出られます。</div>
+        <div id="canvasKeyboardHelp" class="visually-hidden">フォーカス中に矢印キーでカーソルを移動（Shift併用で大きく移動）、Homeで中央へ移動し、スペースまたはEnterで描画の開始・終了、Escで現在の線を取り消し、Ctrl+Zで元に戻します。Tabでキャンバスから出られます。</div>
         <div id="kbDrawStatus" class="visually-hidden" aria-live="polite"></div>
         <div class="progress-bar" id="progressBar" role="progressbar" aria-label="OCRの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="fill" id="progressFill"></div></div>
         <div id="analysisStatus" class="visually-hidden" aria-live="polite"></div>
@@ -182,8 +194,8 @@
       <div class="panel" style="border:3px solid var(--green);">
         <div style="font-weight:700;color:var(--purple);">使い方</div>
         <ol style="margin:8px 0 0 18px;padding:0;color:#333;font-size:13px;">
-          <li>画像を選ぶかキャンバスに手書きし、「漢字分析」を押します。キーボードではキャンバスにフォーカスして矢印キーとスペースでも描画できます。</li>
-          <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書。主要スクリプトは同梱、不足時のみCDN取得（補助ファイルは同梱必須）。</li>
+          <li>画像を選ぶ（ドラッグ＆ドロップ・Ctrl+V貼り付け対応）かキャンバスに手書きし、「漢字分析」を押します。キーボードではキャンバスにフォーカスして矢印キーとスペースでも描画できます。</li>
+          <li><b>API不要</b>: Tesseract.js OCR + 内蔵辞書（未登録漢字のピンインも自動推定）。主要スクリプトは同梱、不足時のみCDN取得（補助ファイルは同梱必須）。</li>
           <li><b>API連携</b>: ローカルAIサーバーで高精度解析（任意）。</li>
         </ol>
       </div>
@@ -191,18 +203,25 @@
 
     <div class="right">
       <div class="panel result" id="resultPanel">
-        <h2>解析結果</h2>
+        <div class="result-header">
+          <h2>解析結果</h2>
+          <button id="copyResultBtn" class="copy-btn" type="button" aria-label="解析結果をコピー" disabled>📋 コピー</button>
+        </div>
         <div class="field"><b>対象の漢字</b><div id="detectedKanji" lang="zh-CN" style="font-size: 2em; font-weight: bold;">--</div></div>
         <div class="field"><b>意味</b><div id="meaning">--</div></div>
         <div class="field"><b>ピンイン</b><div id="pinyin" lang="zh-CN">--</div></div>
-        <div class="field"><b>例文</b><div id="example" lang="zh-CN">--</div></div>
+        <div class="field"><b>例文</b><div id="example" lang="ja">--</div></div>
         <div id="resultLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 
         <div class="field">
-          <label for="manualKanjiInput" style="display:block;margin-bottom:6px;font-weight:bold;color:#555;">手動入力（API不要）</label>
+          <label id="manualInputLabel" for="manualKanjiInput" style="display:block;margin-bottom:6px;font-weight:bold;color:#555;">手動入力（API不要）</label>
           <div class="manual-input-row">
-            <input type="text" id="manualKanjiInput" lang="zh-CN" placeholder="漢字を1文字入力" maxlength="1" style="font-size:1.5em;text-align:center;">
+            <input type="text" id="manualKanjiInput" lang="zh-CN" placeholder="漢字を入力（例: 中）" maxlength="16" style="font-size:1.4em;text-align:center;">
             <button id="lookupBtn" class="btn primary" style="padding:8px 16px;">辞書検索</button>
+          </div>
+          <div id="historySection" class="history-section" hidden>
+            <span style="font-size:12px;color:#555;font-weight:600;">最近の履歴:</span>
+            <div id="historyChips" class="history-chips" role="group" aria-label="最近の検索履歴"></div>
           </div>
         </div>
 
@@ -242,7 +261,10 @@
 
     <footer role="presentation">© SARUTAHICO</footer>
   </div>
-  <div id="messageBox" class="message-box" aria-hidden="true"></div>
+  <div id="messageBox" class="message-box">
+    <span id="messageText" aria-hidden="true"></span>
+    <button id="messageCloseBtn" class="message-close" type="button" aria-label="通知を閉じる">×</button>
+  </div>
   <div id="messageLive" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
 
   <script>
@@ -557,7 +579,7 @@
       "方":{"m":"方、方向","p":"fāng","e":"地方 / 場所"},
       "风":{"m":"風","p":"fēng","e":"刮风 / 風が吹く"},
       "父":{"m":"父、父親","p":"fù","e":"父亲 / 父親"},
-      "高":{"m":"高、高い","p":"gāo","e":"高效 / 高い"},
+      "高":{"m":"高、高い","p":"gāo","e":"很高 / とても高い"},
       "个":{"m":"個、1つ","p":"gè","e":"一个 / 1つ"},
       "工":{"m":"工、工具","p":"gōng","e":"工具 / 工具"},
       "公":{"m":"公、公共","p":"gōng","e":"公司 / 会社"},
@@ -587,7 +609,7 @@
       "口":{"m":"口","p":"kǒu","e":"人口 / 人口"},
       "来":{"m":"来る","p":"lái","e":"来吧 / 来てください"},
       "老":{"m":"老いた、年老いた","p":"lǎo","e":"老人 / 老人"},
-      "乐":{"m":"楽しい、音楽","p":"lè","e":"快乐 / 幸せ"},
+      "乐":{"m":"楽しい、音楽","p":"lè","e":"快乐 / 楽しい"},
       "冷":{"m":"冷たい","p":"lěng","e":"冷天 / 寒い日"},
       "里":{"m":"中、内側","p":"lǐ","e":"家里 / 家の中"},
       "六":{"m":"六、6","p":"liù","e":"六月 / 6月"},
@@ -641,7 +663,7 @@
       "西":{"m":"西","p":"xī","e":"西方 / 西方"},
       "息":{"m":"休む、息","p":"xī","e":"休息 / 休憩"},
       "下":{"m":"下、下へ","p":"xià","e":"下面 / 下"},
-      "先":{"m":"先、まず","p":"xiān","e":"先生 / 先生"},
+      "先":{"m":"先、まず","p":"xiān","e":"先生 / 〜さん（男性の敬称）"},
       "小":{"m":"小、小さい","p":"xiǎo","e":"弱小 / 弱い"},
       "写":{"m":"書く","p":"xiě","e":"写字 / 文字を書く"},
       "心":{"m":"心","p":"xīn","e":"小心 / 気をつけて"},
@@ -763,7 +785,7 @@
       "缓":{"m":"緩、遅い","p":"huǎn","e":"迟缓 / 遅い"},
       "强":{"m":"強、強い","p":"qiáng","e":"强大 / 強い"},
       "弱":{"m":"弱、弱い","p":"ruò","e":"弱小 / 弱い"},
-      "低":{"m":"低、低い","p":"dī","e":"低效 / 低い"},
+      "低":{"m":"低、低い","p":"dī","e":"很低 / とても低い"},
       "效":{"m":"効、効果","p":"xiào","e":"效果 / 効果"},
       "率":{"m":"率、効率","p":"lǜ","e":"效率 / 効率"},
       "结":{"m":"結、構造","p":"jié","e":"结构 / 構造"},
@@ -796,7 +818,7 @@
       "命":{"m":"命、生命","p":"mìng","e":"生命 / 生命"},
       "死":{"m":"死、死ぬ","p":"sǐ","e":"死亡 / 死亡"},
       "亡":{"m":"亡、死ぬ","p":"wáng","e":"死亡 / 死亡"},
-      "丧":{"m":"喪、死ぬ","p":"sàng","e":"丧失 / 喪失"},
+      "丧":{"m":"失う、喪","p":"sàng","e":"丧失 / 喪失"},
       "获":{"m":"獲、得る","p":"huò","e":"收获 / 収穫"},
       "得":{"m":"得、得る","p":"dé","e":"取得 / 取得"},
       "取":{"m":"取、取る","p":"qǔ","e":"取得 / 取得"},
@@ -806,7 +828,7 @@
       "用":{"m":"用、使う","p":"yòng","e":"采用 / 採用"},
       "能":{"m":"能、できる","p":"néng","e":"功能 / 機能"},
       "性":{"m":"性、性質","p":"xìng","e":"性能 / 性能"},
-      "质":{"m":"質、品質","p":"zhì","e":"劣质 / 劣悪"},
+      "质":{"m":"質、品質","p":"zhì","e":"质量 / 品質"},
       "量":{"m":"量、数量","p":"liàng","e":"数量 / 数量"},
       "品":{"m":"品、品質","p":"pǐn","e":"品质 / 品質"},
       "标":{"m":"標、標準","p":"biāo","e":"标准 / 標準"},
@@ -824,7 +846,7 @@
       "器":{"m":"器、道具","p":"qì","e":"机器 / 機械"},
       "设":{"m":"設、設備","p":"shè","e":"设备 / 設備"},
       "备":{"m":"備、設備","p":"bèi","e":"设备 / 設備"},
-      "装":{"m":"装、偽装","p":"zhuāng","e":"伪装 / 偽装"},
+      "装":{"m":"装う、服装、装着する","p":"zhuāng","e":"服装 / 服装"},
       "置":{"m":"置、装置","p":"zhì","e":"装置 / 装置"},
       "具":{"m":"具、道具","p":"jù","e":"工具 / 工具"},
       "材":{"m":"材、材料","p":"cái","e":"材料 / 材料"},
@@ -897,6 +919,259 @@
       "施":{"m":"施、実施","p":"shī","e":"实施 / 実施"},
       "采":{"m":"採、採用","p":"cǎi","e":"采用 / 採用"},
       "挑":{"m":"挑、選ぶ","p":"tiāo","e":"挑选 / 選ぶ"},
+      "的":{"m":"〜の（構造助詞）","p":"de","e":"我的书 / 私の本"},
+      "是":{"m":"〜である、はい","p":"shì","e":"我是学生 / 私は学生です"},
+      "了":{"m":"〜した、完了・変化","p":"le","e":"我吃了 / 私は食べました"},
+      "有":{"m":"ある、持っている","p":"yǒu","e":"我有时间 / 私は時間があります"},
+      "们":{"m":"〜たち（複数）","p":"men","e":"我们 / 私たち"},
+      "你":{"m":"あなた、君","p":"nǐ","e":"你好 / こんにちは"},
+      "您":{"m":"あなた（敬称）","p":"nín","e":"您好 / こんにちは（丁寧）"},
+      "说":{"m":"話す、言う","p":"shuō","e":"说话 / 話をする"},
+      "着":{"m":"〜している（持続）","p":"zhe","e":"看着 / 見ている"},
+      "那":{"m":"あれ、その","p":"nà","e":"那个 / あれ"},
+      "哪":{"m":"どれ、どの","p":"nǎ","e":"哪儿 / どこ"},
+      "谁":{"m":"だれ、誰","p":"shéi","e":"你是谁 / あなたは誰ですか"},
+      "也":{"m":"〜も、また","p":"yě","e":"我也是 / 私もそうです"},
+      "都":{"m":"すべて、みな","p":"dōu","e":"大家都来 / みんな来ます"},
+      "可":{"m":"できる、〜してもよい","p":"kě","e":"可以 / 大丈夫、〜してよい"},
+      "什":{"m":"何（什么で使用）","p":"shén","e":"什么 / 何"},
+      "么":{"m":"（接尾辞：什么・怎么など）","p":"me","e":"怎么 / どのように"},
+      "怎":{"m":"どのように、どう","p":"zěn","e":"怎么样 / どうですか"},
+      "吗":{"m":"〜ですか（疑問助詞）","p":"ma","e":"你好吗 / お元気ですか"},
+      "呢":{"m":"〜は？（疑問・語気助詞）","p":"ne","e":"你呢 / あなたは？"},
+      "吧":{"m":"〜しよう、〜でしょう","p":"ba","e":"走吧 / 行きましょう"},
+      "谢":{"m":"感謝する、ありがとう","p":"xiè","e":"谢谢 / ありがとう"},
+      "朋":{"m":"友、仲間","p":"péng","e":"朋友 / 友達"},
+      "友":{"m":"友、友人","p":"yǒu","e":"好朋友 / 親友"},
+      "问":{"m":"尋ねる、問う","p":"wèn","e":"请问 / すみませんがお尋ねします"},
+      "题":{"m":"問題、題目","p":"tí","e":"没问题 / 問題ありません"},
+      "今":{"m":"今、今日","p":"jīn","e":"今天 / 今日"},
+      "候":{"m":"時、待つ","p":"hòu","e":"什么时候 / いつ"},
+      "岁":{"m":"歳（年齢）","p":"suì","e":"今年十岁 / 今年10歳"},
+      "号":{"m":"日（日付）、番号","p":"hào","e":"几号 / 何日"},
+      "块":{"m":"元（通貨の口語）、塊","p":"kuài","e":"十块钱 / 10元"},
+      "元":{"m":"元（通貨）、初め","p":"yuán","e":"一元 / 1元"},
+      "千":{"m":"千、1000","p":"qiān","e":"一千元 / 1000元"},
+      "零":{"m":"ゼロ、零","p":"líng","e":"零下 / 氷点下"},
+      "半":{"m":"半分、半","p":"bàn","e":"一半 / 半分"},
+      "自":{"m":"自分、〜から","p":"zì","e":"自己 / 自分自身"},
+      "己":{"m":"自分、おのれ","p":"jǐ","e":"自己做 / 自分でする"},
+      "之":{"m":"〜の（文語）","p":"zhī","e":"之前 / 〜の前に"},
+      "当":{"m":"〜になる、当たる","p":"dāng","e":"当然 / もちろん"},
+      "只":{"m":"ただ〜だけ","p":"zhǐ","e":"只要 / 〜さえすれば"},
+      "如":{"m":"もし、〜のように","p":"rú","e":"如果 / もし"},
+      "事":{"m":"こと、仕事、用事","p":"shì","e":"事情 / 事柄、用事"},
+      "还":{"m":"まだ、さらに、返す","p":"hái","e":"还有 / まだある"},
+      "样":{"m":"様子、種類","p":"yàng","e":"这样 / このように"},
+      "美":{"m":"美しい、アメリカ","p":"měi","e":"美丽 / 美しい"},
+      "无":{"m":"無い、無","p":"wú","e":"无法 / 〜できない"},
+      "情":{"m":"気持ち、状況","p":"qíng","e":"情况 / 状況"},
+      "面":{"m":"面、顔、麺","p":"miàn","e":"前面 / 前"},
+      "最":{"m":"最も、一番","p":"zuì","e":"最好 / 一番よい"},
+      "更":{"m":"さらに、もっと","p":"gèng","e":"更好 / さらによい"},
+      "太":{"m":"とても、〜すぎる","p":"tài","e":"太好了 / とてもよい"},
+      "非":{"m":"〜でない、非常に","p":"fēi","e":"非常 / 非常に"},
+      "些":{"m":"いくつか、少し","p":"xiē","e":"这些 / これら"},
+      "同":{"m":"同じ、一緒に","p":"tóng","e":"同学 / クラスメート"},
+      "手":{"m":"手","p":"shǒu","e":"手机 / 携帯電話"},
+      "又":{"m":"また、再び","p":"yòu","e":"又来了 / また来た"},
+      "意":{"m":"意味、気持ち","p":"yì","e":"意思 / 意味"},
+      "思":{"m":"思う、考える","p":"sī","e":"思考 / 考える"},
+      "动":{"m":"動く、動かす","p":"dòng","e":"运动 / 運動"},
+      "运":{"m":"運ぶ、運動、運","p":"yùn","e":"运动 / 運動"},
+      "头":{"m":"頭、先頭","p":"tóu","e":"头发 / 髪の毛"},
+      "儿":{"m":"子ども、接尾辞","p":"ér","e":"儿子 / 息子"},
+      "位":{"m":"方（敬称量詞）、位置","p":"wèi","e":"一位老师 / 1人の先生"},
+      "名":{"m":"名前、有名な","p":"míng","e":"名字 / 名前"},
+      "世":{"m":"世界、代","p":"shì","e":"世界 / 世界"},
+      "界":{"m":"世界、境界","p":"jiè","e":"全世界 / 全世界"},
+      "次":{"m":"回（回数）、次","p":"cì","e":"第一次 / 初めて"},
+      "件":{"m":"着・件（量詞）","p":"jiàn","e":"一件事 / 1つのこと"},
+      "张":{"m":"枚（量詞）、広げる","p":"zhāng","e":"一张纸 / 1枚の紙"},
+      "条":{"m":"本・筋（量詞）","p":"tiáo","e":"一条河 / 1本の川"},
+      "使":{"m":"使う、〜させる","p":"shǐ","e":"使用 / 使用する"},
+      "身":{"m":"体、身","p":"shēn","e":"身体 / 体"},
+      "亲":{"m":"親、親しい","p":"qīn","e":"亲切 / 親切"},
+      "话":{"m":"話、言葉","p":"huà","e":"电话 / 電話"},
+      "语":{"m":"言語、言葉","p":"yǔ","e":"汉语 / 中国語"},
+      "词":{"m":"単語、言葉","p":"cí","e":"词语 / 単語"},
+      "句":{"m":"文、フレーズ","p":"jù","e":"句子 / 文章"},
+      "文":{"m":"文章、文字、文化","p":"wén","e":"中文 / 中国語"},
+      "音":{"m":"音、発音","p":"yīn","e":"音乐 / 音楽"},
+      "声":{"m":"声、音","p":"shēng","e":"声音 / 声・音"},
+      "歌":{"m":"歌","p":"gē","e":"唱歌 / 歌を歌う"},
+      "唱":{"m":"歌う","p":"chàng","e":"唱歌 / 歌を歌う"},
+      "特":{"m":"特別、特に","p":"tè","e":"特别 / 特別に"},
+      "孩":{"m":"子ども","p":"hái","e":"孩子 / 子ども"},
+      "相":{"m":"互いに、信じる","p":"xiāng","e":"相信 / 信じる"},
+      "信":{"m":"信じる、手紙","p":"xìn","e":"相信 / 信じる"},
+      "物":{"m":"物、物体","p":"wù","e":"动物 / 動物"},
+      "打":{"m":"打つ、かける、する","p":"dǎ","e":"打电话 / 電話をかける"},
+      "才":{"m":"やっと、才能","p":"cái","e":"刚才 / さっき"},
+      "便":{"m":"便利、安い（便宜）","p":"biàn","e":"方便 / 便利"},
+      "宜":{"m":"適する、安い（便宜）","p":"yí","e":"便宜 / 安い"},
+      "贵":{"m":"高い（値段）、尊い","p":"guì","e":"很贵 / とても高い"},
+      "眼":{"m":"目、眼","p":"yǎn","e":"眼睛 / 目"},
+      "目":{"m":"目、目標","p":"mù","e":"目标 / 目標"},
+      "加":{"m":"加える、参加する","p":"jiā","e":"参加 / 参加する"},
+      "利":{"m":"利益、便利","p":"lì","e":"利用 / 利用する"},
+      "德":{"m":"徳、ドイツ","p":"dé","e":"道德 / 道徳"},
+      "代":{"m":"時代、代わり","p":"dài","e":"代表 / 代表"},
+      "员":{"m":"〜員（人）","p":"yuán","e":"服务员 / 店員"},
+      "难":{"m":"難しい、困難","p":"nán","e":"不难 / 難しくない"},
+      "望":{"m":"望む、眺める","p":"wàng","e":"希望 / 希望する"},
+      "希":{"m":"望む、まれ","p":"xī","e":"希望 / 希望"},
+      "色":{"m":"色","p":"sè","e":"颜色 / 色"},
+      "黄":{"m":"黄色","p":"huáng","e":"黄色 / 黄色"},
+      "蓝":{"m":"青、ブルー","p":"lán","e":"蓝天 / 青空"},
+      "绿":{"m":"緑","p":"lǜ","e":"绿色 / 緑色"},
+      "青":{"m":"青い、若い","p":"qīng","e":"青年 / 青年"},
+      "金":{"m":"金、お金","p":"jīn","e":"金色 / 金色"},
+      "银":{"m":"銀、銀行","p":"yín","e":"银行 / 銀行"},
+      "记":{"m":"覚える、記録する","p":"jì","e":"记得 / 覚えている"},
+      "忘":{"m":"忘れる","p":"wàng","e":"忘记 / 忘れる"},
+      "平":{"m":"平ら、平和","p":"píng","e":"和平 / 平和"},
+      "报":{"m":"報じる、新聞","p":"bào","e":"报纸 / 新聞"},
+      "关":{"m":"閉める、関係する","p":"guān","e":"没关系 / 大丈夫です"},
+      "放":{"m":"置く、放す","p":"fàng","e":"放心 / 安心する"},
+      "告":{"m":"告げる、伝える","p":"gào","e":"告诉 / 教える、伝える"},
+      "入":{"m":"入る、入れる","p":"rù","e":"入口 / 入口"},
+      "笑":{"m":"笑う","p":"xiào","e":"微笑 / 微笑む"},
+      "内":{"m":"内側、内部","p":"nèi","e":"内容 / 内容"},
+      "英":{"m":"英語、優れる","p":"yīng","e":"英语 / 英語"},
+      "民":{"m":"国民、人々","p":"mín","e":"人民 / 人民"},
+      "路":{"m":"道、道路","p":"lù","e":"马路 / 道路"},
+      "带":{"m":"持っていく、連れる","p":"dài","e":"带伞 / 傘を持っていく"},
+      "原":{"m":"もと、原因","p":"yuán","e":"原来 / もともと"},
+      "变":{"m":"変わる、変える","p":"biàn","e":"变化 / 変化"},
+      "通":{"m":"通じる、普通","p":"tōng","e":"交通 / 交通"},
+      "师":{"m":"先生、師","p":"shī","e":"老师 / 先生"},
+      "立":{"m":"立つ、立てる","p":"lì","e":"站立 / 立つ"},
+      "数":{"m":"数、数字","p":"shù","e":"数字 / 数字"},
+      "满":{"m":"満ちる、満足","p":"mǎn","e":"满意 / 満足"},
+      "远":{"m":"遠い","p":"yuǎn","e":"很远 / とても遠い"},
+      "近":{"m":"近い","p":"jìn","e":"附近 / 近く"},
+      "轻":{"m":"軽い","p":"qīng","e":"年轻 / 若い"},
+      "病":{"m":"病気","p":"bìng","e":"生病 / 病気になる"},
+      "痛":{"m":"痛い","p":"tòng","e":"头痛 / 頭が痛い"},
+      "药":{"m":"薬","p":"yào","e":"吃药 / 薬を飲む"},
+      "始":{"m":"始まる、始める","p":"shǐ","e":"开始 / 始める"},
+      "深":{"m":"深い","p":"shēn","e":"很深 / とても深い"},
+      "清":{"m":"清い、はっきりした","p":"qīng","e":"清楚 / はっきりしている"},
+      "化":{"m":"変化する、〜化","p":"huà","e":"文化 / 文化"},
+      "业":{"m":"仕事、産業、学業","p":"yè","e":"作业 / 宿題"},
+      "找":{"m":"探す、見つける","p":"zhǎo","e":"找到 / 見つかる"},
+      "喜":{"m":"喜ぶ、好き","p":"xǐ","e":"喜欢 / 好き"},
+      "欢":{"m":"喜ぶ、歓迎する","p":"huān","e":"欢迎 / ようこそ"},
+      "飞":{"m":"飛ぶ","p":"fēi","e":"飞机 / 飛行機"},
+      "船":{"m":"船","p":"chuán","e":"坐船 / 船に乗る"},
+      "站":{"m":"立つ、駅","p":"zhàn","e":"车站 / 駅"},
+      "干":{"m":"乾く、清潔、する","p":"gān","e":"干净 / きれい"},
+      "净":{"m":"清い、きれい","p":"jìng","e":"干净 / きれい"},
+      "流":{"m":"流れる、流行","p":"liú","e":"流行 / 流行する"},
+      "合":{"m":"合う、合わせる","p":"hé","e":"合作 / 協力する"},
+      "反":{"m":"反対、返す","p":"fǎn","e":"反对 / 反対する"},
+      "必":{"m":"必ず、必要","p":"bì","e":"必须 / 〜しなければならない"},
+      "交":{"m":"交わる、渡す","p":"jiāo","e":"交流 / 交流する"},
+      "晚":{"m":"夜、遅い","p":"wǎn","e":"晚上 / 夜"},
+      "夜":{"m":"夜","p":"yè","e":"夜晚 / 夜"},
+      "球":{"m":"ボール、球","p":"qiú","e":"足球 / サッカー"},
+      "房":{"m":"部屋、家","p":"fáng","e":"房间 / 部屋"},
+      "院":{"m":"庭、病院、学院","p":"yuàn","e":"医院 / 病院"},
+      "校":{"m":"学校","p":"xiào","e":"学校 / 学校"},
+      "店":{"m":"店","p":"diàn","e":"商店 / 店"},
+      "苦":{"m":"苦い、苦しい","p":"kǔ","e":"辛苦 / お疲れさま"},
+      "甜":{"m":"甘い","p":"tián","e":"很甜 / とても甘い"},
+      "辣":{"m":"辛い","p":"là","e":"很辣 / とても辛い"},
+      "酸":{"m":"酸っぱい","p":"suān","e":"酸甜 / 甘酸っぱい"},
+      "答":{"m":"答える","p":"dá","e":"回答 / 答える"},
+      "视":{"m":"見る、テレビ","p":"shì","e":"电视 / テレビ"},
+      "网":{"m":"網、インターネット","p":"wǎng","e":"上网 / ネットをする"},
+      "脑":{"m":"脳、パソコン","p":"nǎo","e":"电脑 / パソコン"},
+      "司":{"m":"つかさどる、会社","p":"sī","e":"公司 / 会社"},
+      "爸":{"m":"父、お父さん","p":"bà","e":"爸爸 / お父さん"},
+      "哥":{"m":"兄、お兄さん","p":"gē","e":"哥哥 / お兄さん"},
+      "姐":{"m":"姉、お姉さん","p":"jiě","e":"姐姐 / お姉さん"},
+      "弟":{"m":"弟","p":"dì","e":"弟弟 / 弟"},
+      "妹":{"m":"妹","p":"mèi","e":"妹妹 / 妹"},
+      "狗":{"m":"犬","p":"gǒu","e":"小狗 / 子犬"},
+      "识":{"m":"知る、知識","p":"shí","e":"认识 / 知り合う"},
+      "留":{"m":"残る、留める","p":"liú","e":"留学 / 留学する"},
+      "市":{"m":"市、市場","p":"shì","e":"城市 / 都市"},
+      "送":{"m":"送る、贈る","p":"sòng","e":"送礼 / 贈り物を贈る"},
+      "兴":{"m":"うれしい、盛ん","p":"xìng","e":"高兴 / うれしい"},
+      "帮":{"m":"助ける、手伝う","p":"bāng","e":"帮忙 / 手伝う"},
+      "助":{"m":"助ける","p":"zhù","e":"帮助 / 助ける"},
+      "拿":{"m":"持つ、取る","p":"ná","e":"拿着 / 持っている"},
+      "办":{"m":"行う、処理する","p":"bàn","e":"办法 / 方法"},
+      "卖":{"m":"売る","p":"mài","e":"卖东西 / 物を売る"},
+      "服":{"m":"服、従う","p":"fú","e":"衣服 / 服"},
+      "穿":{"m":"着る、履く","p":"chuān","e":"穿衣服 / 服を着る"},
+      "洗":{"m":"洗う","p":"xǐ","e":"洗手 / 手を洗う"},
+      "桌":{"m":"机、テーブル","p":"zhuō","e":"桌子 / 机"},
+      "椅":{"m":"椅子","p":"yǐ","e":"椅子 / 椅子"},
+      "杯":{"m":"コップ、杯","p":"bēi","e":"杯子 / コップ"},
+      "笔":{"m":"ペン、筆","p":"bǐ","e":"铅笔 / 鉛筆"},
+      "纸":{"m":"紙","p":"zhǐ","e":"白纸 / 白い紙"},
+      "灯":{"m":"明かり、ランプ","p":"dēng","e":"开灯 / 電気をつける"},
+      "跑":{"m":"走る","p":"pǎo","e":"跑步 / ジョギングする"},
+      "睡":{"m":"眠る、寝る","p":"shuì","e":"睡觉 / 寝る"},
+      "怕":{"m":"恐れる、怖い","p":"pà","e":"害怕 / 怖い"},
+      "累":{"m":"疲れる","p":"lèi","e":"很累 / とても疲れた"},
+      "饿":{"m":"お腹が空く","p":"è","e":"很饿 / お腹が空いた"},
+      "旧":{"m":"古い","p":"jiù","e":"旧书 / 古い本"},
+      "短":{"m":"短い","p":"duǎn","e":"很短 / とても短い"},
+      "忙":{"m":"忙しい","p":"máng","e":"很忙 / とても忙しい"},
+      "晴":{"m":"晴れ","p":"qíng","e":"晴天 / 晴れの日"},
+      "阴":{"m":"曇り、陰","p":"yīn","e":"阴天 / 曇りの日"},
+      "暖":{"m":"暖かい","p":"nuǎn","e":"暖和 / 暖かい"},
+      "凉":{"m":"涼しい","p":"liáng","e":"凉快 / 涼しい"},
+      "酒":{"m":"酒","p":"jiǔ","e":"喝酒 / お酒を飲む"},
+      "奶":{"m":"ミルク、牛乳","p":"nǎi","e":"牛奶 / 牛乳"},
+      "肉":{"m":"肉","p":"ròu","e":"牛肉 / 牛肉"},
+      "鱼":{"m":"魚","p":"yú","e":"吃鱼 / 魚を食べる"},
+      "蛋":{"m":"卵","p":"dàn","e":"鸡蛋 / 鶏卵"},
+      "苹":{"m":"リンゴ（苹果で使用）","p":"píng","e":"苹果 / リンゴ"},
+      "包":{"m":"包む、カバン、パン","p":"bāo","e":"面包 / パン"},
+      "汤":{"m":"スープ、湯","p":"tāng","e":"喝汤 / スープを飲む"},
+      "糖":{"m":"砂糖、飴","p":"táng","e":"白糖 / 砂糖"},
+      "盐":{"m":"塩","p":"yán","e":"食盐 / 食塩"},
+      "石":{"m":"石","p":"shí","e":"石头 / 石"},
+      "古":{"m":"古い、古代","p":"gǔ","e":"古代 / 古代"},
+      "华":{"m":"華やか、中華","p":"huá","e":"中华 / 中華"},
+      "照":{"m":"照らす、写真を撮る","p":"zhào","e":"拍照 / 写真を撮る"},
+      "计":{"m":"計る、計画","p":"jì","e":"计划 / 計画"},
+      "谈":{"m":"話す、語る","p":"tán","e":"谈话 / 話し合う"},
+      "容":{"m":"容れる、容易","p":"róng","e":"容易 / 簡単"},
+      "极":{"m":"極めて、極","p":"jí","e":"积极 / 積極的"},
+      "随":{"m":"従う、随う","p":"suí","e":"随便 / 気軽に、適当に"},
+      "演":{"m":"演じる、講演","p":"yǎn","e":"表演 / 演技する"},
+      "首":{"m":"首、初め、首都","p":"shǒu","e":"首都 / 首都"},
+      "造":{"m":"造る、作る","p":"zào","e":"制造 / 製造する"},
+      "久":{"m":"長い間、久しい","p":"jiǔ","e":"好久不见 / お久しぶり"},
+      "落":{"m":"落ちる","p":"luò","e":"落叶 / 落ち葉"},
+      "连":{"m":"連なる、〜さえ","p":"lián","e":"联系 / 連絡する"},
+      "奇":{"m":"珍しい、不思議","p":"qí","e":"奇怪 / 不思議、変だ"},
+      "未":{"m":"まだ〜ない、未来","p":"wèi","e":"未来 / 未来"},
+      "精":{"m":"精巧、元気","p":"jīng","e":"精神 / 元気、精神"},
+      "产":{"m":"生む、生産","p":"chǎn","e":"产品 / 製品"},
+      "布":{"m":"布、発表する","p":"bù","e":"公布 / 公表する"},
+      "传":{"m":"伝える","p":"chuán","e":"传统 / 伝統"},
+      "保":{"m":"保つ、守る","p":"bǎo","e":"保护 / 保護する"},
+      "终":{"m":"終わり、ついに","p":"zhōng","e":"终于 / ついに"},
+      "论":{"m":"論じる、議論","p":"lùn","e":"讨论 / 議論する"},
+      "指":{"m":"指、指す","p":"zhǐ","e":"手指 / 指"},
+      "约":{"m":"約束、約","p":"yuē","e":"大约 / およそ"},
+      "即":{"m":"すなわち、すぐ","p":"jí","e":"立即 / 直ちに"},
+      "片":{"m":"切れ、写真","p":"piàn","e":"照片 / 写真"},
+      "切":{"m":"切る、すべて","p":"qiē","e":"一切 / すべて"},
+      "曾":{"m":"かつて","p":"céng","e":"曾经 / かつて"},
+      "格":{"m":"格、資格、価格","p":"gé","e":"价格 / 価格"},
+      "象":{"m":"象、印象","p":"xiàng","e":"印象 / 印象"},
+      "拉":{"m":"引く、引っ張る","p":"lā","e":"拉开 / 引き開ける"},
+      "神":{"m":"神、精神","p":"shén","e":"神奇 / 不思議な"},
+      "并":{"m":"並べる、そして","p":"bìng","e":"并且 / そのうえ"},
+      "何":{"m":"何、どうして","p":"hé","e":"如何 / どのように"},
     };
 
     // ---- DOM要素 ----
@@ -914,12 +1189,19 @@
     const apiUrlInput = document.getElementById('apiUrl');
     const apiUrlErrorEl = document.getElementById('apiUrlError');
     const messageBox = document.getElementById('messageBox');
+    const messageText = document.getElementById('messageText');
+    const messageCloseBtn = document.getElementById('messageCloseBtn');
     const messageLive = document.getElementById('messageLive');
     let lastMessageText = '';
+    const resultPanel = document.getElementById('resultPanel');
     const analysisStatusEl = document.getElementById('analysisStatus');
     const resultLiveEl = document.getElementById('resultLive');
+    const manualInputLabel = document.getElementById('manualInputLabel');
     const manualKanjiInput = document.getElementById('manualKanjiInput');
     const lookupBtn = document.getElementById('lookupBtn');
+    const copyResultBtn = document.getElementById('copyResultBtn');
+    const historySection = document.getElementById('historySection');
+    const historyChips = document.getElementById('historyChips');
     const offlineModeBtn = document.getElementById('offlineModeBtn');
     const apiModeBtn = document.getElementById('apiModeBtn');
     const apiSettings = document.getElementById('apiSettings');
@@ -987,6 +1269,10 @@
     let analysisController = null;
     let ocrQueue = Promise.resolve();
     let ocrJobCounter = 0;
+    let imageLoadToken = 0;
+    let resultDisplayToken = 0;
+    const recentHistory = [];
+    const MAX_HISTORY = 8;
     function cancelAnalysis() {
       analysisGeneration++;
       if (analysisController) {
@@ -997,6 +1283,8 @@
       analysisActive = false;
       analyzeBtn.removeAttribute('aria-disabled');
       analyzeBtn.textContent = '漢字分析';
+      lookupBtn.removeAttribute('aria-disabled');
+      lookupBtn.textContent = useApiMode ? 'API検索' : '辞書検索';
       resultPanel.removeAttribute('aria-busy');
       analysisStatusEl.textContent = '解析をキャンセルしました';
       showProgress(false);
@@ -1013,9 +1301,11 @@
       const value = text || '--';
       const parts = value.match(/^([\s\S]*?)(\s*\/\s*)([\s\S]*)$/);
       if (!parts) {
+        exampleEl.lang = 'ja';
         exampleEl.textContent = value;
         return;
       }
+      exampleEl.removeAttribute('lang');
       exampleEl.textContent = '';
       const chinese = document.createElement('span');
       chinese.lang = 'zh-CN';
@@ -1025,11 +1315,30 @@
       japanese.textContent = parts[3];
       exampleEl.append(chinese, document.createTextNode(parts[2]), japanese);
     }
+    function setPinyinText(text, estimated = false) {
+      const value = text || '--';
+      if (estimated) {
+        const base = value.replace(/（自動推定）$/, '');
+        pinyinEl.removeAttribute('lang');
+        pinyinEl.textContent = '';
+        const pySpan = document.createElement('span');
+        pySpan.lang = 'zh-CN';
+        pySpan.textContent = base;
+        const noteSpan = document.createElement('span');
+        noteSpan.lang = 'ja';
+        noteSpan.textContent = '（自動推定）';
+        pinyinEl.append(pySpan, noteSpan);
+        return;
+      }
+      pinyinEl.lang = 'zh-CN';
+      pinyinEl.textContent = value;
+    }
     function clearResult() {
       stopSpeaking();
+      resultDisplayToken++;
       detectedKanjiEl.textContent = '--';
       meaningEl.textContent = '--';
-      pinyinEl.textContent = '--';
+      setPinyinText('--');
       setExampleText('--');
       resultLiveEl._token = (resultLiveEl._token || 0) + 1;
       resultLiveEl.textContent = '';
@@ -1037,6 +1346,7 @@
       currentExampleText = '';
       playPinyinBtn.disabled = true;
       playExampleBtn.disabled = true;
+      copyResultBtn.disabled = true;
     }
     function setMode(apiMode) {
       const wasAnalyzing = analysisActive;
@@ -1052,6 +1362,8 @@
       modeBadge.style.background = apiMode ? 'var(--purple)' : 'var(--green)';
       ocrBadge.textContent = apiMode ? 'Qwen-VL' : 'Tesseract.js';
       ocrBadge.style.background = apiMode ? 'var(--purple)' : 'var(--gold)';
+      manualInputLabel.textContent = apiMode ? '手動入力（API連携）' : '手動入力（API不要）';
+      lookupBtn.textContent = apiMode ? 'API検索' : '辞書検索';
       clearResult();
       analysisStatusEl.textContent = (wasAnalyzing ? '解析をキャンセルし、' : '') +
         (apiMode ? 'API連携モードに切り替えました。' : 'API不要モードに切り替えました。');
@@ -1062,6 +1374,8 @@
     // ---- キャンバス初期化 ----
     function initCanvas(saveState = true) {
       cancelAnalysis();
+      imageLoadToken++;
+      drawing = false;
       keyDrawing = false;
       if (saveState) saveUndoState();
       ctx.globalCompositeOperation = 'source-over';
@@ -1087,6 +1401,7 @@
 
     function undo() {
       cancelAnalysis();
+      imageLoadToken++;
       // A pointer stroke must not resume from the old coordinate after its
       // saved state has been popped.
       drawing = false;
@@ -1123,16 +1438,24 @@
     }
 
     function startDrawing(e) {
+      if (e.isPrimary === false) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
       cancelAnalysis();
+      imageLoadToken++;
       // Pointer and keyboard strokes must not overlap, otherwise Escape would
       // undo the pointer state while claiming the keyboard stroke was canceled.
       if (keyDrawing) setKeyPen(false);
+      if (e.pointerId !== undefined && typeof canvas.setPointerCapture === 'function') {
+        try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      }
       drawing = true;
       last = toCanvasCoords(e);
       keyCursor = { x: last.x, y: last.y };
       updateKeyCursor();
       saveUndoState();
+      // Draw an initial dot so single-tap strokes (e.g. 丶) register cleanly.
+      drawLine(last.x, last.y, last.x, last.y);
     }
     function stopDrawing() { drawing = false; }
     function draw(e) {
@@ -1148,8 +1471,10 @@
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.lineWidth = penSize * (tool === 'eraser' ? 3 : 1);
-      ctx.globalCompositeOperation = tool === 'pen' ? 'source-over' : 'destination-out';
-      ctx.strokeStyle = tool === 'pen' ? penColor : 'rgba(0,0,0,1)';
+      // Paint opaque white instead of destination-out so exported PNGs never
+      // carry transparent pixels that turn black in external VLMs or OCR.
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = tool === 'pen' ? penColor : '#ffffff';
       ctx.stroke();
     }
 
@@ -1176,6 +1501,8 @@
       if (down && drawing) stopDrawing();
       keyDrawing = down;
       if (down) {
+        cancelAnalysis();
+        imageLoadToken++;
         saveUndoState();
         drawLine(keyCursor.x, keyCursor.y, keyCursor.x, keyCursor.y);
         kbDrawStatus.textContent = `描画を開始しました。位置 ${Math.round(keyCursor.x)}, ${Math.round(keyCursor.y)}`;
@@ -1285,30 +1612,36 @@
     document.addEventListener('keydown', (e) => {
       const el = e.target;
       const editing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !editing) {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !editing) {
         e.preventDefault();
         undo();
       }
       if (e.key === 'Escape') {
         if (keyDrawing) cancelKeyStroke();
         else if (drawing) undo();
+        else if (messageBox.classList.contains('visible')) hideMessage();
         else stopDrawing();
       }
     });
 
-    // ---- ファイルアップロード ----
-    fileInput.addEventListener('change', (ev) => {
-      const file = ev.target.files && ev.target.files[0];
+    // ---- ファイルアップロード（選択・ドラッグ＆ドロップ・貼り付け） ----
+    function loadImageFile(file) {
       if (!file) return;
-      cancelAnalysis();
-      clearResult();
-      if (!file.type.startsWith('image/')) {
+      if (!file.type || !file.type.startsWith('image/')) {
         showMessage('画像ファイルを選択してください。', 3000, true);
         return;
       }
+      cancelAnalysis();
+      clearResult();
+      const token = ++imageLoadToken;
       const img = new Image();
       const reader = new FileReader();
       img.onload = () => {
+        if (token !== imageLoadToken) return;
+        if (!img.width || !img.height) {
+          showMessage('画像のサイズを読み取れませんでした。', 3000, true);
+          return;
+        }
         initCanvas();
         const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
         const w = img.width * scale;
@@ -1318,14 +1651,70 @@
         ctx.drawImage(img, x, y, w, h);
         showMessage('画像を読み込みました。「漢字分析」を押してください。');
       };
-      img.onerror = () => showMessage('画像の読み込みに失敗しました。', 3000, true);
-      reader.onload = (e) => { img.src = e.target.result; };
-      reader.onerror = () => showMessage('ファイルの読み込みに失敗しました。', 3000, true);
+      img.onerror = () => {
+        if (token === imageLoadToken) showMessage('画像の読み込みに失敗しました。', 3000, true);
+      };
+      reader.onload = (e) => {
+        if (token === imageLoadToken) img.src = e.target.result;
+      };
+      reader.onerror = () => {
+        if (token === imageLoadToken) showMessage('ファイルの読み込みに失敗しました。', 3000, true);
+      };
       reader.readAsDataURL(file);
+    }
+
+    fileInput.addEventListener('change', (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      loadImageFile(file);
       ev.target.value = '';
     });
 
+    canvasStage.addEventListener('dragover', (ev) => {
+      ev.preventDefault();
+      canvasStage.classList.add('drag-over');
+    });
+    canvasStage.addEventListener('dragleave', (ev) => {
+      if (ev.relatedTarget && canvasStage.contains(ev.relatedTarget)) return;
+      canvasStage.classList.remove('drag-over');
+    });
+    canvasStage.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      canvasStage.classList.remove('drag-over');
+      const file = ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0];
+      if (file) loadImageFile(file);
+    });
+
+    document.addEventListener('paste', (ev) => {
+      const items = ev.clipboardData && ev.clipboardData.items;
+      if (!items) return;
+      const el = document.activeElement;
+      const inTextInput = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+      if (inTextInput && ev.clipboardData.types && ev.clipboardData.types.includes('text/plain')) {
+        return;
+      }
+      for (const item of items) {
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            ev.preventDefault();
+            loadImageFile(file);
+          }
+          return;
+        }
+      }
+    });
+
     // ---- メッセージ表示 ----
+    function hideMessage() {
+      clearTimeout(messageBox._timer);
+      messageBox._timer = null;
+      messageBox._token = (messageBox._token || 0) + 1;
+      messageBox.classList.remove('visible', 'urgent');
+      messageText.textContent = '';
+      messageLive.textContent = '';
+    }
+    messageCloseBtn.addEventListener('click', hideMessage);
+
     function showMessage(text, duration = 3000, urgent = false) {
       clearTimeout(messageBox._timer);
       messageBox._timer = null;
@@ -1333,12 +1722,10 @@
       const token = (messageBox._token || 0) + 1;
       messageBox._token = token;
       // Errors interrupt; progress and success wait for a pause. The visible
-      // box stays aria-hidden so only the dedicated live node is announced.
-      // Clear before changing politeness so the previous text is never
-      // re-announced under the new aria-live value.
-      // Resetting the node in a frame re-announces repeats without blanking
-      // the visible message or doubling alert semantics.
-      messageBox.textContent = text;
+      // text stays aria-hidden so only the dedicated live node is announced,
+      // while the close button stays keyboard-reachable whenever visible.
+      messageText.textContent = text;
+      messageBox.classList.toggle('urgent', Boolean(urgent));
       messageBox.classList.add('visible');
       messageLive.textContent = '';
       messageLive.setAttribute('aria-live', urgent ? 'assertive' : 'polite');
@@ -1347,9 +1734,9 @@
       });
       if (duration > 0) {
         messageBox._timer = setTimeout(() => {
-          messageBox.classList.remove('visible');
+          messageBox.classList.remove('visible', 'urgent');
           if (messageBox._token === token) {
-            messageBox.textContent = '';
+            messageText.textContent = '';
             messageLive.textContent = '';
           }
         }, duration);
@@ -1508,20 +1895,55 @@
           threshold = t;
         }
       }
-      // Apply threshold: dark text on white background
+      // Apply threshold: dark text on white background, tracking ink bounds.
       const out = ctx.createImageData(w, h);
-      for (let i = 0; i < w * h; i++) {
-        const v = gray[i] > threshold ? 255 : 0;
-        out.data[i*4] = v;
-        out.data[i*4+1] = v;
-        out.data[i*4+2] = v;
-        out.data[i*4+3] = 255;
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          const v = gray[i] > threshold ? 255 : 0;
+          if (v === 0) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+          out.data[i*4] = v;
+          out.data[i*4+1] = v;
+          out.data[i*4+2] = v;
+          out.data[i*4+3] = 255;
+        }
       }
       // Create temp canvas with processed image
       const tmpCanvas = document.createElement('canvas');
       tmpCanvas.width = w;
       tmpCanvas.height = h;
       tmpCanvas.getContext('2d').putImageData(out, 0, 0);
+      // Crop around the ink bounding box and center on a padded square so
+      // off-center or small handwritten characters recognize reliably.
+      if (maxX >= minX && maxY >= minY) {
+        const bw = maxX - minX + 1;
+        const bh = maxY - minY + 1;
+        const targetSize = 320;
+        const innerSize = Math.round(targetSize * 0.72);
+        const scale = Math.min(innerSize / bw, innerSize / bh, 4);
+        const drawW = Math.max(1, Math.round(bw * scale));
+        const drawH = Math.max(1, Math.round(bh * scale));
+        const normCanvas = document.createElement('canvas');
+        normCanvas.width = targetSize;
+        normCanvas.height = targetSize;
+        const nctx = normCanvas.getContext('2d');
+        nctx.fillStyle = '#ffffff';
+        nctx.fillRect(0, 0, targetSize, targetSize);
+        nctx.drawImage(
+          tmpCanvas,
+          minX, minY, bw, bh,
+          Math.round((targetSize - drawW) / 2),
+          Math.round((targetSize - drawH) / 2),
+          drawW, drawH
+        );
+        return normCanvas.toDataURL('image/png');
+      }
       return tmpCanvas.toDataURL('image/png');
     }
 
@@ -2001,6 +2423,13 @@
       setTtsStatus(statusText);
     }
 
+    async function ensurePinyinPro() {
+      if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return true;
+      const pinyinAsset = await resolveAsset('vendor/pinyin/pinyin-pro.js', PINYIN_PRO_BASE + 'index.js');
+      await loadScript(pinyinAsset.url, pinyinAsset.integrity);
+      return Boolean(window.pinyinPro && typeof window.pinyinPro.pinyin === 'function');
+    }
+
     async function loadPiperRuntime() {
       if (window.ort && window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') return;
       setTtsStatus('ニューラル音声のエンジンを読み込み中...');
@@ -2009,8 +2438,7 @@
         throw new Error('PiperのWASMアセットがローカルにありません。tools/fetch-assets.py を実行してください。');
       }
       await loadScript(ortAsset.url, ortAsset.integrity);
-      const pinyinAsset = await resolveAsset('vendor/pinyin/pinyin-pro.js', PINYIN_PRO_BASE + 'index.js');
-      await loadScript(pinyinAsset.url, pinyinAsset.integrity);
+      await ensurePinyinPro();
       if (!window.ort || !window.pinyinPro || typeof window.pinyinPro.pinyin !== 'function') {
         throw new Error('Piper runtime load failed');
       }
@@ -2460,26 +2888,19 @@
     playPinyinBtn.addEventListener('click', () => playText(currentKanjiText, playPinyinBtn));
     playExampleBtn.addEventListener('click', () => playText(currentExampleText, playExampleBtn));
 
-    // ---- 手動辞書検索 ----
-    function displayResult(result) {
-      stopSpeaking();
-      detectedKanjiEl.textContent = result.kanji || '--';
-      meaningEl.textContent = result.meaning || '--';
-      pinyinEl.textContent = result.pinyin || '--';
-      setExampleText(result.example);
-      currentKanjiText = (result.kanji && result.kanji !== '--') ? result.kanji.charAt(0) : '';
-      let exampleChinese = result.example || '';
-      if (exampleChinese.includes('/')) {
-        exampleChinese = exampleChinese.split('/')[0].trim();
-      }
-      const unavailableExample = /^（[^）]*未登録[^）]*）$/.test(exampleChinese);
-      currentExampleText = (exampleChinese && exampleChinese !== '--' && !unavailableExample) ? exampleChinese : '';
-      playPinyinBtn.disabled = !currentKanjiText;
-      playExampleBtn.disabled = !currentExampleText;
-      // Manual lookup and OCR both update the DOM silently; announce the same
-      // result as a polite summary for screen-reader users.
+    // ---- 手動辞書検索・履歴・コピー ----
+    function extractSingleKanji(raw) {
+      const trimmed = String(raw || '').trim();
+      if (!trimmed) return '';
+      const cjk = trimmed.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u);
+      return cjk ? cjk[0] : Array.from(trimmed)[0];
+    }
+
+    function announceResultSummary() {
       const parts = [`漢字: ${detectedKanjiEl.textContent}`];
-      if (pinyinEl.textContent && pinyinEl.textContent !== '--') parts.push(`ピンイン: ${pinyinEl.textContent}`);
+      if (pinyinEl.textContent && pinyinEl.textContent !== '--' && pinyinEl.textContent !== '—') {
+        parts.push(`ピンイン: ${pinyinEl.textContent}`);
+      }
       if (meaningEl.textContent && meaningEl.textContent !== '--') parts.push(`意味: ${meaningEl.textContent}`);
       if (exampleEl.textContent && exampleEl.textContent !== '--') parts.push(`例文: ${exampleEl.textContent}`);
       const token = (resultLiveEl._token || 0) + 1;
@@ -2490,17 +2911,164 @@
       });
     }
 
-    lookupBtn.addEventListener('click', () => {
+    function recordHistory(result) {
+      const ch = extractSingleKanji(result && result.kanji);
+      if (!ch || ch === '--') return;
+      const existingIdx = recentHistory.findIndex(item => item.kanji === ch);
+      if (existingIdx !== -1) recentHistory.splice(existingIdx, 1);
+      recentHistory.unshift({
+        kanji: ch,
+        meaning: result.meaning || '--',
+        pinyin: result.pinyin || '--',
+        example: result.example || '--'
+      });
+      if (recentHistory.length > MAX_HISTORY) recentHistory.pop();
+      renderHistory();
+    }
+
+    function renderHistory() {
+      historyChips.textContent = '';
+      if (!recentHistory.length) {
+        historySection.hidden = true;
+        return;
+      }
+      historySection.hidden = false;
+      recentHistory.forEach(item => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'history-chip';
+        chip.setAttribute('aria-label', `${item.kanji} の結果を表示`);
+        const glyph = document.createElement('span');
+        glyph.lang = 'zh-CN';
+        glyph.setAttribute('aria-hidden', 'true');
+        glyph.textContent = item.kanji;
+        chip.appendChild(glyph);
+        chip.addEventListener('click', () => {
+          cancelAnalysis();
+          manualKanjiInput.value = item.kanji;
+          displayResult(item, { addToHistory: false });
+        });
+        historyChips.appendChild(chip);
+      });
+    }
+
+    async function enrichMissingPinyin(kanji, token) {
+      if (!kanji || !/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u.test(kanji)) return;
+      try {
+        const ok = await ensurePinyinPro();
+        if (!ok || token !== resultDisplayToken) return;
+        const py = window.pinyinPro.pinyin(kanji, { toneType: 'symbol' }).trim();
+        if (!py || py === kanji || token !== resultDisplayToken) return;
+        setPinyinText(py, true);
+        const entry = recentHistory.find(item => item.kanji === kanji);
+        if (entry && (!entry.pinyin || entry.pinyin === '—' || entry.pinyin === '--')) {
+          entry.pinyin = `${py}（自動推定）`;
+        }
+        announceResultSummary();
+      } catch (e) {
+        console.warn('Pinyin auto-estimation unavailable:', e);
+      }
+    }
+
+    function displayResult(result, { addToHistory = true } = {}) {
+      stopSpeaking();
+      const displayToken = ++resultDisplayToken;
+      detectedKanjiEl.textContent = result.kanji || '--';
+      meaningEl.textContent = result.meaning || '--';
+      const rawPinyin = result.pinyin || '--';
+      setPinyinText(rawPinyin, rawPinyin.endsWith('（自動推定）'));
+      setExampleText(result.example);
+      currentKanjiText = (result.kanji && result.kanji !== '--') ? Array.from(result.kanji)[0] : '';
+      let exampleChinese = result.example || '';
+      if (exampleChinese.includes('/')) {
+        exampleChinese = exampleChinese.split('/')[0].trim();
+      }
+      const unavailableExample = /^（[^）]*未登録[^）]*）$/.test(exampleChinese);
+      currentExampleText = (exampleChinese && exampleChinese !== '--' && !unavailableExample) ? exampleChinese : '';
+      playPinyinBtn.disabled = !currentKanjiText;
+      playExampleBtn.disabled = !currentExampleText;
+      copyResultBtn.disabled = !currentKanjiText;
+      if (addToHistory && currentKanjiText) recordHistory(result);
+      announceResultSummary();
+      if (currentKanjiText && (!result.pinyin || result.pinyin === '—' || result.pinyin === '--')) {
+        enrichMissingPinyin(currentKanjiText, displayToken);
+      }
+    }
+
+    copyResultBtn.addEventListener('click', async () => {
+      if (!currentKanjiText) return;
+      const lines = [
+        `漢字: ${detectedKanjiEl.textContent}`,
+        `ピンイン: ${pinyinEl.textContent}`,
+        `意味: ${meaningEl.textContent}`,
+        `例文: ${exampleEl.textContent}`
+      ];
+      const text = lines.join('\n');
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const copied = document.execCommand('copy');
+          ta.remove();
+          copyResultBtn.focus();
+          if (!copied) throw new Error('execCommand copy failed');
+        }
+        showMessage('解析結果をクリップボードにコピーしました。', 2500);
+      } catch (e) {
+        showMessage('コピーに失敗しました。', 3000, true);
+      }
+    });
+
+    lookupBtn.addEventListener('click', async () => {
+      if (useApiMode && (analysisActive || lookupBtn.getAttribute('aria-disabled') === 'true')) return;
       cancelAnalysis();
-      const kanji = manualKanjiInput.value.trim();
-      if (!kanji) {
+      const ch = extractSingleKanji(manualKanjiInput.value);
+      if (!ch) {
         showMessage('漢字を1文字入力してください。');
         return;
       }
-      const result = lookupDictionary(kanji.charAt(0));
+      manualKanjiInput.value = ch;
+      if (useApiMode) {
+        const generation = ++analysisGeneration;
+        analysisActive = true;
+        analysisController = new AbortController();
+        let completed = false;
+        try {
+          lookupBtn.setAttribute('aria-disabled', 'true');
+          lookupBtn.innerHTML = '<span class="spinner"></span>検索中...';
+          analyzeBtn.setAttribute('aria-disabled', 'true');
+          clearResult();
+          resultPanel.setAttribute('aria-busy', 'true');
+          analysisStatusEl.textContent = '解析中です';
+          const result = await generateDetailsForKanji(ch);
+          if (generation !== analysisGeneration) return;
+          if (!result) return;
+          displayResult(result);
+          completed = true;
+        } finally {
+          if (generation === analysisGeneration) {
+            analysisActive = false;
+            analysisController = null;
+            lookupBtn.removeAttribute('aria-disabled');
+            lookupBtn.textContent = useApiMode ? 'API検索' : '辞書検索';
+            analyzeBtn.removeAttribute('aria-disabled');
+            resultPanel.removeAttribute('aria-busy');
+            analysisStatusEl.textContent = completed ? '解析が完了しました' : '解析に失敗しました';
+          }
+        }
+        return;
+      }
+      const result = lookupDictionary(ch);
       displayResult(result);
       if (result.meaning && result.meaning.includes('未登録')) {
-        showMessage('内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください。', 5000);
+        showMessage('内蔵辞書に未登録です（ピンインと音声は利用できます）。詳細はAPI連携モードをお使いください。', 5000);
       }
     });
 
@@ -2530,14 +3098,16 @@
         analysisStatusEl.textContent = '解析中です';
         stopSpeaking();
 
+        resultDisplayToken++;
         detectedKanjiEl.textContent = '--';
         meaningEl.textContent = '--';
-        pinyinEl.textContent = '--';
+        setPinyinText('--');
         setExampleText('--');
         currentKanjiText = '';
         currentExampleText = '';
         playPinyinBtn.disabled = true;
         playExampleBtn.disabled = true;
+        copyResultBtn.disabled = true;
 
         const dataUrl = canvas.toDataURL('image/png');
 
@@ -2578,7 +3148,7 @@
               displayResult(result);
               completed = true;
               if (result.meaning === '（辞書に未登録）') {
-                showMessage('認識された漢字: ' + kanji + '（内蔵辞書に未登録です。API連携モードを使うか別の文字を試してください）', 5000);
+                showMessage('認識された漢字: ' + kanji + '（内蔵辞書に未登録です。ピンインと音声は利用できます）', 5000);
               } else {
                 showMessage('認識された漢字: ' + kanji, 3000);
               }
@@ -2590,7 +3160,11 @@
                 const result = lookupDictionary(kanji2);
                 displayResult(result);
                 completed = true;
-                showMessage('認識された漢字: ' + kanji2, 3000);
+                if (result.meaning === '（辞書に未登録）') {
+                  showMessage('認識された漢字: ' + kanji2 + '（内蔵辞書に未登録です。ピンインと音声は利用できます）', 5000);
+                } else {
+                  showMessage('認識された漢字: ' + kanji2, 3000);
+                }
               } else {
                 showMessage('漢字を認識できませんでした。手動入力をお使いください。', 5000);
                 meaningEl.textContent = 'API不要モード: 下の入力欄に漢字を入力して検索してください。';

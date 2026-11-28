@@ -336,3 +336,12 @@ RBNF 照合の一時スクリプトは `unicode-rbnf` を別ディレクトリ�
 `PYTHONPATH=C:/Users/ryosk/AppData/Local/Temp/opencode/unicode-rbnf` と
 `PYTHONIOENCODING=utf-8` を付ける。`review_cases.json` を共有する
 `review_diff_fixed.py` と `review_gaps.py` は並列実行せず、逐次実行する。
+
+## 2026-11-28 UX・辞書拡充・描画・OCR 改善の知見
+- 内蔵辞書 `KANJI_DICT` を 367 → 620 一意キーへ拡充（HSK 基本漢字の大幅追加）し、既存エントリの不自然な訳・例文（`高`/`低`/`先`/`质`/`装`/`丧`/`乐`）を修正した。
+- 辞書未登録の漢字でも同梱 `vendor/pinyin/pinyin-pro.js` をオンデマンド読み込み（`ensurePinyinPro()`、SRI 検証付き・外部通信ゼロ）して声調付きピンインを自動推定・表示する。表示時は `setPinyinText()` でピンイン（`lang="zh-CN"`）と `（自動推定）`（`lang="ja"`）を分割する。
+- 手書き描画: `startDrawing()` で単一点を描画して「丶」などのタップ筆画を反映し、右クリック・マルチタッチ副ポインタを除外する。消しゴムは `destination-out` ではなく `source-over` + `#ffffff` で塗り、PNG 出力に透過ピクセル（VLM/OCR での黒化原因）を残さない。
+- 画像入力: `loadImageFile()` に統合し、`imageLoadToken` で非同期上書き競合を防止、ドラッグ＆ドロップと `Ctrl+V` 貼り付け（テキスト入力欄のテキスト貼り付けを保護）に対応した。サイズ 0 画像（SVG 等）での `NaN` 描画も防止する。
+- OCR 前処理: `preprocessCanvas()` で Otsu 二値化後にインク領域のバウンディングボックスを検出し、最大拡大率 4 倍の上限付きで白余白を付けて中央配置・正規化する。
+- UI/a11y: `manualKanjiInput` の `maxlength` を 16 にして IME 変換を妨げないようにし、先頭漢字を抽出する。API 連携モード時の手動検索は API 連携で詳細生成（ローディング・ボタン無効化・キャンセル連動）。結果コピーボタンと最近の検索履歴チップ（`44×44px`、ボタンに `lang="zh-CN"` を付けず内側 `<span aria-hidden="true">` で分離）を追加。通知バナーは通常/エラーで色分けし、`Escape` キーとフォーカス可能な閉じるボタン（`#messageCloseBtn`）でキーボードからも閉じられるようにした。
+- `tools/serve.py`: `ThreadingHTTPServer` へ移行し、並列アセット配信と `allow_reuse_address` による再起動安定性を改善した。
